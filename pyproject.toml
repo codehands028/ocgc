@@ -4,20 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ocgc"
-version = "0.1.0"
-description = "OpenCode Garbage Collector — analyze and reclaim storage used by OpenCode sessions, diffs, and snapshots"
+version = "0.2.0"
+description = "OpenCode Garbage Collector — analyze and reclaim storage used by OpenCode (v1 and v2) sessions, diffs, and snapshots"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "Wu Haotian", email = "whtsky@gmail.com" }]
+authors = [
+    { name = "codehands028", email = "chcoldhands@163.com" },
+    { name = "Wu Haotian", email = "whtsky@gmail.com" },
+]
 classifiers = [
     "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
 ]
 dependencies = [
     "click>=8.0",
@@ -28,13 +39,20 @@ dependencies = [
 ocgc = "ocgc.cli:cli"
 
 [project.urls]
-Repository = "https://github.com/whtsky/ocgc"
+Homepage = "https://github.com/codehands028/ocgc#readme"
+Repository = "https://github.com/codehands028/ocgc"
+Issues = "https://github.com/codehands028/ocgc/issues"
+Upstream = "https://github.com/whtsky/ocgc"
 
 [dependency-groups]
 dev = [
     "ruff>=0.4",
     "mypy>=1.10",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ocgc"]

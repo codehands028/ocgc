@@ -44,6 +44,14 @@ def parse_size(s: str) -> int:
     return int(value * multipliers[unit])
 
 
+def _detect_version_or_exit(conn: sqlite3.Connection) -> int:
+    try:
+        return db.detect_version(conn)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
+
+
 def run_purge(
     older_than: str | None,
     subagents: bool,
@@ -77,7 +85,8 @@ def run_purge(
             click.echo(f"Error: {e}", err=True)
             raise SystemExit(1) from None
         try:
-            summary = db.get_reasoning_summary(conn, session_ids=None)
+            version = _detect_version_or_exit(conn)
+            summary = db.get_reasoning_summary(conn, session_ids=None, version=version)
         finally:
             conn.close()
 
@@ -95,7 +104,7 @@ def run_purge(
 
         conn = db.connect(readonly=False)
         try:
-            count = db.strip_reasoning(conn, session_ids=None)
+            count = db.strip_reasoning(conn, session_ids=None, version=version)
             console.print(f"[green]Deleted {count:,} reasoning parts.[/]")
         finally:
             conn.close()
@@ -108,6 +117,7 @@ def run_purge(
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from None
     try:
+        version = _detect_version_or_exit(conn)
         matched_ids = db.get_session_ids_for_purge(
             conn,
             older_than_ms=older_than_ms,
@@ -116,6 +126,7 @@ def run_purge(
             session_ids=list(session_ids) if session_ids else None,
             keep_latest=keep_latest,
             now_ms=now_ms,
+            version=version,
         )
 
         if not matched_ids:
@@ -123,13 +134,13 @@ def run_purge(
             return
 
         if strip_reasoning:
-            summary = db.get_reasoning_summary(conn, matched_ids)
+            summary = db.get_reasoning_summary(conn, matched_ids, version=version)
             if summary["part_count"] == 0:
                 console.print("[dim]No reasoning parts found in matching sessions.[/]")
                 return
             print_reasoning_summary(summary, dry_run=dry_run)
         else:
-            summary = db.get_purge_summary(conn, matched_ids)
+            summary = db.get_purge_summary(conn, matched_ids, version=version)
             # Count session diff files that would be cleaned
             diff_dir = db.get_storage_dir() / "storage" / "session_diff"
             diff_files = 0
@@ -159,10 +170,10 @@ def run_purge(
         raise SystemExit(1) from None
     try:
         if strip_reasoning:
-            count = db.strip_reasoning(conn, matched_ids)
+            count = db.strip_reasoning(conn, matched_ids, version=version)
             console.print(f"[green]Deleted {count:,} reasoning parts from {len(matched_ids)} sessions.[/]")
         else:
-            files_result = db.purge_sessions(conn, matched_ids)
+            files_result = db.purge_sessions(conn, matched_ids, version=version)
             freed = format_bytes(summary["total_bytes"])
             msg = f"[green]Deleted {summary['session_count']:,} sessions, freed ~{freed}."
             if files_result.files_deleted:
@@ -247,7 +258,8 @@ def run_clean_orphans(dry_run: bool, force: bool) -> None:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from None
     try:
-        orphans = db.get_orphan_session_diffs(conn)
+        version = _detect_version_or_exit(conn)
+        orphans = db.get_orphan_session_diffs(conn, version=version)
     finally:
         conn.close()
 

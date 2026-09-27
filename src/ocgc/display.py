@@ -93,6 +93,7 @@ def print_status(
     header.add_column(style=C_DIM, justify="right")
     header.add_column(style=C_VALUE)
     header.add_row("Database", str(db_info.path))
+    header.add_row("Schema", f"OpenCode v{db_info.version}")
     header.add_row("DB size", format_bytes(db_info.db_size))
     header.add_row("WAL size", format_bytes(db_info.wal_size))
     header.add_row("Total DB", f"[bold]{format_bytes(db_info.total_size)}[/]")
@@ -179,6 +180,15 @@ def print_status(
     console.print(age_table)
 
 
+def _format_dir_name(directory: str | None) -> str:
+    if not directory:
+        return ""
+    normalized = directory.replace("\\", "/").rstrip("/")
+    if not normalized:
+        return "/"
+    return normalized.rsplit("/", 1)[-1]
+
+
 def print_sessions(sessions: list[SessionRow]) -> None:
     table = Table(
         title="Sessions",
@@ -196,7 +206,7 @@ def print_sessions(sessions: list[SessionRow]) -> None:
     table.add_column("Msgs", justify="right")
 
     for s in sessions:
-        dir_name = s.directory.rstrip("/").rsplit("/", 1)[-1] if s.directory else ""
+        dir_name = _format_dir_name(s.directory)
         title_str = s.title or "(untitled)"
         title = title_str[:37] + "..." if len(title_str) > 40 else title_str
         type_label = f"[{C_SUB}]sub[/]" if s.is_subagent else f"[{C_ROOT}]root[/]"
@@ -241,7 +251,7 @@ def print_analysis(
     top_table.add_column("Msgs", justify="right")
 
     for i, s in enumerate(top_sessions, 1):
-        dir_name = s.directory.rstrip("/").rsplit("/", 1)[-1] if s.directory else ""
+        dir_name = _format_dir_name(s.directory)
         title_str = s.title or "(untitled)"
         title = title_str[:37] + "..." if len(title_str) > 40 else title_str
         type_label = f"[{C_SUB}]sub[/]" if s.is_subagent else f"[{C_ROOT}]root[/]"

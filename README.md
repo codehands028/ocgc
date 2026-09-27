@@ -1,6 +1,6 @@
 # ocgc: OpenCode Garbage Collector
 
-Analyze and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots.
+Analyze and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** across **Windows, Linux, and macOS**.
 
 OpenCode stores sessions in a SQLite file that grows without limit and has [no built-in cleanup](https://github.com/anomalyco/opencode/issues/4980). It also writes session diffs and git snapshots to disk. `ocgc` shows where the space goes and reclaims it.
 
@@ -23,19 +23,35 @@ OpenCode stores sessions in a SQLite file that grows without limit and has [no b
 Copy this to your AI agent:
 
 ```
-Read https://raw.githubusercontent.com/whtsky/ocgc/refs/heads/main/README.md and help me garbage collect OpenCode storage.
+Read https://raw.githubusercontent.com/codehands028/ocgc/refs/heads/main/README.md and help me garbage collect OpenCode storage.
 ```
 
 ## Install
 
+### Recommended (via uv)
+
+Install as a global tool:
+
 ```bash
-uv tool install ocgc
+uv tool install git+https://github.com/codehands028/ocgc.git
 ```
 
-Or with pip:
+Or run directly without installing (like npx):
 
 ```bash
-pip install ocgc
+uvx --from git+https://github.com/codehands028/ocgc.git ocgc status
+```
+
+### Via pipx
+
+```bash
+pipx install git+https://github.com/codehands028/ocgc.git
+```
+
+### Via pip
+
+```bash
+pip install git+https://github.com/codehands028/ocgc.git
 ```
 
 ## Usage
@@ -98,6 +114,12 @@ ocgc status
 ```
 
 Default: `~/.local/share/opencode/opencode.db`
+
+## Attribution
+
+This project is an independent fork of the original [whtsky/ocgc](https://github.com/whtsky/ocgc) created by [Wu Haotian](https://github.com/whtsky), enhanced with:
+- Full support for OpenCode v2 database schema (`session_v2`, `session_message`, `event`, etc.)
+- Complete cross-platform compatibility across Windows, Linux, and macOS
 
 ## License
 
