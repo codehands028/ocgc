@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "codehands028", email = "chcoldhands@163.com" },
-    { name = "Wu Haotian", email = "whtsky@gmail.com" },
 ]
 classifiers = [
     "License :: OSI Approved :: MIT License",
