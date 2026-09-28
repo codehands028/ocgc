@@ -108,3 +108,20 @@ def vacuum(force: bool) -> None:
     from ocgc.purger import run_vacuum
 
     run_vacuum(force=force)
+
+
+@cli.command("install-skill")
+@click.option("--dest", "-d", default=None, help="Custom target directory for the skill")
+@click.option(
+    "--workspace", "-w", is_flag=True, default=False,
+    help="Install into current workspace directory (.opencode/skills/ocgc)",
+)
+def install_skill_cmd(dest: str | None, workspace: bool) -> None:
+    """Install ocgc as a native OpenCode Skill."""
+    if dest is not None and workspace:
+        raise click.UsageError("--dest and --workspace cannot be used together")
+    from ocgc.skill import run_install_skill
+
+    run_install_skill(dest=dest, workspace=workspace)
+
+

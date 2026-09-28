@@ -5,8 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](pyproject.toml)
 [![OpenCode v1 & v2](https://img.shields.io/badge/OpenCode-v1%20%7C%20v2-green.svg)](https://github.com/anomalyco/opencode)
+[![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
+[![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-15%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-16%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -39,7 +41,8 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Windows Process Detection** | ❌ Fails (`pgrep` not found) | ✅ **`tasklist` CSV inspection** (`opencode.exe`, `opencode-server.exe`, etc.) |
 | **SQLite Read-Only URI Handling** | ⚠️ Fragile string formatting | ✅ **Standard `path.resolve().as_uri()`** across all OSes |
 | **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **15 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **16 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -62,10 +65,43 @@ Detailed preview of sessions, messages, parts, and diff files to be reclaimed:
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start: OpenCode Native Skill
 
-### Feed this prompt to your AI Agent
-If you are using Claude Code, OpenCode, Cursor, or another agent, simply copy:
+`ocgc` includes a built-in OpenCode Native Skill conforming to the standard Agent Skills specification. Once installed, your OpenCode assistant can automatically inspect, analyze, and clean its own storage on demand.
+
+### Option 1: Zero-Setup Installer (Recommended via `uvx`)
+
+Install the skill globally for OpenCode with a single command (no npm or cloning required):
+
+```bash
+uvx --from git+https://github.com/codehands028/ocgc.git ocgc install-skill
+```
+
+*(Or run `ocgc install-skill --workspace` to install into the current project workspace only).*
+
+### Option 2: Via `skills.sh`
+
+If you use the [skills.sh](https://skills.sh) ecosystem:
+
+```bash
+npx skills add codehands028/ocgc
+```
+
+---
+
+### 💬 How to Command OpenCode
+
+Once installed, simply ask OpenCode in your chat in natural language:
+
+- *"Check my OpenCode storage status and analyze the largest sessions"*
+- *"Preview a safe dry-run purge for sessions older than 30 days"*
+- *"Strip bulky reasoning tokens from OpenCode SQLite DB to save space"*
+- *"Run VACUUM to reclaim disk space after purge"*
+
+OpenCode will automatically invoke `ocgc` following strict safety workflows (status $\rightarrow$ preview $\rightarrow$ confirm $\rightarrow$ purge $\rightarrow$ vacuum).
+
+### Direct Prompt Alternative
+If you prefer not to install the skill file, you can also paste this prompt directly into OpenCode:
 
 ```
 Read https://raw.githubusercontent.com/codehands028/ocgc/refs/heads/main/README.md and help me analyze and garbage collect my OpenCode storage.

@@ -349,3 +349,10 @@ def print_vacuum_result(before: int, after: int) -> None:
     grid.add_row("Saved", f"[{C_SUCCESS}]{format_bytes(saved)}[/]" if saved > 0 else format_bytes(saved))
 
     console.print(Panel(grid, title="[bold cyan]Vacuum Complete[/]", border_style="cyan"))
+    if saved > 0:
+        console.print(
+            f"\n[dim]✨ Reclaimed [bold]{format_bytes(saved)}[/bold] of disk space! "
+            "If ocgc helped you, consider starring on GitHub: "
+            "[link=https://github.com/codehands028/ocgc]https://github.com/codehands028/ocgc[/link] ⭐️[/dim]"
+        )
+

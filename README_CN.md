@@ -5,8 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](pyproject.toml)
 [![OpenCode v1 & v2](https://img.shields.io/badge/OpenCode-v1%20%7C%20v2-green.svg)](https://github.com/anomalyco/opencode)
+[![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
+[![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-15%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-16%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -39,7 +41,8 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **Windows 运行进程探测** | ❌ 失败（找不到 `pgrep` 命令） | ✅ **`tasklist` CSV 智能匹配**（识别 `opencode.exe`, `opencode-server.exe` 等） |
 | **只读 SQLite 连接处理** | ⚠️ 简易字符串拼接（在 Windows 盘符下极易出错） | ✅ **跨平台标准的 `path.resolve().as_uri()`** |
 | **磁盘孤立 Diff 文件检测** | ⚠️ 仅针对 v1 | ✅ **自适应 v1/v2 数据库识别磁盘孤立文件** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **15 项端到端综合测试**（覆盖 v1/v2 全部核心流程） |
+| **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **16 项端到端综合测试**（覆盖 v1/v2 全部核心流程） |
 
 ---
 
@@ -62,10 +65,44 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 
 ---
 
-## 🚀 快速上手
+## 🚀 快速上手：OpenCode 原生技能
 
-### 直接复制给您的 AI 助手
-如果您正在使用 Claude Code、OpenCode、Cursor 或其他智能 Agent，可直接发送：
+`ocgc` 内置了开箱即用的 OpenCode 原生技能（Skill），符合标准 Agent Skills 规范。安装后，您的 OpenCode 助手即可自主分析、预览并安全清理本地存储。
+
+### 方式 1：纯 Python / uvx 原生一键安装（强烈推荐）
+
+直接通过 `uvx` 运行，无需额外安装 npm，也无需克隆仓库：
+
+```bash
+# 全局安装至 OpenCode 技能目录 (~/.agents/skills/ocgc)
+uvx --from git+https://github.com/codehands028/ocgc.git ocgc install-skill
+```
+
+*(如需仅安装到当前项目工作区，可追加 `--workspace` 参数)*。
+
+### 方式 2：通过 `skills.sh` 通用包管理器安装
+
+如果您习惯使用 [skills.sh](https://skills.sh) 生态：
+
+```bash
+npx skills add codehands028/ocgc
+```
+
+---
+
+### 💬 在 OpenCode 中直接用自然语言吩咐
+
+安装完成后，在与 OpenCode 对话时，直接用日常自然语言交流即可：
+
+- *“帮我检查一下 OpenCode 的磁盘占用情况，并按大小分析前 10 个最大的会话”*
+- *“安全演练并清理 30 天前的旧会话，看看能释放多少空间”*
+- *“剥离历史会话中的思考过程（Reasoning Tokens），保留文本记录”*
+- *“执行 VACUUM 紧凑化收缩数据库”*
+
+OpenCode 将自动严格遵循安全规范（status 状态诊断 $\rightarrow$ dry-run 演练预览 $\rightarrow$ 确认后再执行清理 $\rightarrow$ vacuum 收缩）。
+
+### 直接作为 Prompt 发送给 OpenCode
+如果您暂未安装 Skill 文件，也可以直接在 OpenCode 聊天框中发送以下 Prompt：
 
 ```
 请阅读 https://raw.githubusercontent.com/codehands028/ocgc/refs/heads/main/README_CN.md 并帮我分析与清理 OpenCode 的存储空间。

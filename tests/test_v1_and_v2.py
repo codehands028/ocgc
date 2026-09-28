@@ -744,3 +744,61 @@ def test_cross_platform_compatibility(tmp_path: Path, monkeypatch: pytest.Monkey
     assert _format_dir_name("C:\\") == "C:"
     assert _format_dir_name("C:\\Users\\alice\\my-project") == "my-project"
     assert _format_dir_name("/home/alice/my-project/") == "my-project"
+
+
+def test_install_skill_and_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from click.testing import CliRunner
+
+    from ocgc.skill import get_skill_content, install_skill
+
+    # Test programmatic install to custom directory
+    dest = tmp_path / "custom_skills"
+    installed_paths = install_skill(dest=dest)
+    assert len(installed_paths) == 1
+    installed_path = installed_paths[0]
+    assert installed_path.exists()
+    assert installed_path.name == "SKILL.md"
+    assert installed_path.parent.name == "ocgc"
+    content = get_skill_content()
+    assert installed_path.read_text(encoding="utf-8") == content
+    assert "name: ocgc" in content
+    assert "description:" in content
+
+    # Test CLI install-skill command with custom dest (both directory and directory ending in ocgc)
+    runner = CliRunner()
+    cli_dest = tmp_path / "cli_skills"
+    res = runner.invoke(cli, ["install-skill", "--dest", str(cli_dest)])
+    assert res.exit_code == 0
+    assert "Successfully installed OpenCode skill" in res.output
+    assert (cli_dest / "ocgc" / "SKILL.md").exists()
+
+    cli_dest_ocgc = tmp_path / "named_skills" / "ocgc"
+    res_ocgc = runner.invoke(cli, ["install-skill", "--dest", str(cli_dest_ocgc)])
+    assert res_ocgc.exit_code == 0
+    assert (cli_dest_ocgc / "SKILL.md").exists()
+    assert not (cli_dest_ocgc / "ocgc").exists()
+
+    # Test CLI install-skill mutual exclusion of --dest and --workspace
+    res_conflict = runner.invoke(cli, ["install-skill", "--dest", str(cli_dest), "--workspace"])
+    assert res_conflict.exit_code != 0
+    assert "cannot be used together" in res_conflict.output
+
+    # Test CLI install-skill with tilde in --dest
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    res_tilde = runner.invoke(cli, ["install-skill", "--dest", "~/tilde_skills"])
+    assert res_tilde.exit_code == 0
+    assert (tmp_path / "home" / "tilde_skills" / "ocgc" / "SKILL.md").exists()
+
+    # Test CLI install-skill default global to mock home
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "fake_home")
+    res_global = runner.invoke(cli, ["install-skill"])
+    assert res_global.exit_code == 0
+    assert (tmp_path / "fake_home" / ".agents" / "skills" / "ocgc" / "SKILL.md").exists()
+
+    # Test CLI install-skill with --workspace
+    monkeypatch.chdir(tmp_path)
+    res_ws = runner.invoke(cli, ["install-skill", "--workspace"])
+    assert res_ws.exit_code == 0
+    assert (tmp_path / ".opencode" / "skills" / "ocgc" / "SKILL.md").exists()
+
+
