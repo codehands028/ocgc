@@ -115,6 +115,7 @@ Filters can be combined:
 - `--session <ID>`: Target specific session IDs (repeatable).
 - `--clean-snapshots`: Remove git snapshot cache directories.
 - `--clean-orphans`: Remove orphaned session diff files not referenced in the DB.
+- `--clean-tool-output`: Remove cached tool execution output files.
 
 ---
 

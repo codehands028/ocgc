@@ -802,3 +802,125 @@ def test_install_skill_and_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert (tmp_path / ".opencode" / "skills" / "ocgc" / "SKILL.md").exists()
 
 
+def test_clean_tool_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage_base = tmp_path / "opencode_storage"
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    tool_dir = storage_base / "tool-output"
+    sub_dir = tool_dir / "subdir"
+    sub_dir.mkdir(parents=True)
+
+    now = time.time()
+    day_s = 86400
+
+    f_old1 = tool_dir / "out_old1.log"
+    f_old1.write_text("old output 1")
+    os.utime(f_old1, (now - 10 * day_s, now - 10 * day_s))
+
+    f_old2 = sub_dir / "out_old2.log"
+    f_old2.write_text("old output 2 in subdir")
+    os.utime(f_old2, (now - 8 * day_s, now - 8 * day_s))
+
+    f_new = tool_dir / "out_new.log"
+    f_new.write_text("recent output")
+    os.utime(f_new, (now - 1 * day_s, now - 1 * day_s))
+
+    # Check filesystem stats
+    fs = db.get_filesystem_stats()
+    assert fs.tool_output_count == 3
+    assert fs.tool_output_size == len("old output 1") + len("old output 2 in subdir") + len("recent output")
+
+    # Get all tool outputs
+    all_files = db.get_tool_output_files()
+    assert len(all_files) == 3
+
+    # Filter older than 5 days
+    old_files = db.get_tool_output_files(older_than_ms=5 * 86400 * 1000)
+    assert len(old_files) == 2
+    assert {f.path.name for f in old_files} == {"out_old1.log", "out_old2.log"}
+
+    # Purge filtered tool outputs
+    res = db.purge_tool_outputs(old_files)
+    assert res.files_deleted == 2
+    assert not f_old1.exists()
+    assert not f_old2.exists()
+    assert not sub_dir.exists()  # empty subdir should be cleaned up
+    assert f_new.exists()
+
+    # Remaining files
+    rem_files = db.get_tool_output_files()
+    assert len(rem_files) == 1
+    assert rem_files[0].path == f_new
+
+    # Purge remaining
+    res2 = db.purge_tool_outputs(rem_files)
+    assert res2.files_deleted == 1
+    assert not f_new.exists()
+
+    # Test TOCTOU: file modified after scan is preserved
+    f_concurrent = tool_dir / "concurrent.log"
+    f_concurrent.write_text("initial")
+    os.utime(f_concurrent, (now - 10 * day_s, now - 10 * day_s))
+    scan_files = db.get_tool_output_files()
+    assert len(scan_files) == 1
+    # Simulate concurrent write by opencode after scan
+    time.sleep(0.01)
+    f_concurrent.write_text("new content written by tool")
+    purge_res = db.purge_tool_outputs(scan_files)
+    assert purge_res.files_deleted == 0
+    assert f_concurrent.exists()
+
+
+def test_cli_purge_tool_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    storage_base = tmp_path / "opencode_storage"
+    storage_base.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    db_path = storage_base / "opencode.db"
+    create_v2_db(db_path).close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    tool_dir = storage_base / "tool-output"
+    tool_dir.mkdir(parents=True)
+
+    now = time.time()
+    day_s = 86400
+
+    f1 = tool_dir / "tool_1"
+    f1.write_bytes(b"x" * 1024)
+    os.utime(f1, (now - 10 * day_s, now - 10 * day_s))
+
+    f2 = tool_dir / "tool_2"
+    f2.write_bytes(b"y" * 2048)
+    os.utime(f2, (now - 1 * day_s, now - 1 * day_s))
+
+    # Dry run
+    res = runner.invoke(cli, ["purge", "--clean-tool-output", "--dry-run"])
+    assert res.exit_code == 0
+    assert "Tool output files to delete" in res.output
+    assert "2" in res.output
+    assert f1.exists() and f2.exists()
+
+    # Purge with older-than 5d (should only delete f1)
+    res = runner.invoke(cli, ["purge", "--clean-tool-output", "--older-than", "5d", "--force"])
+    assert res.exit_code == 0
+    assert "Deleted 1 tool output file(s)" in res.output
+    assert not f1.exists()
+    assert f2.exists()
+
+    # Purge remaining with force
+    res = runner.invoke(cli, ["purge", "--clean-tool-output", "--force"])
+    assert res.exit_code == 0
+    assert "Deleted 1 tool output file(s)" in res.output
+    assert not f2.exists()
+
+    # When no tool output files exist
+    res = runner.invoke(cli, ["purge", "--clean-tool-output", "--force"])
+    assert res.exit_code == 0
+    assert "No tool output files found" in res.output
+
+
+

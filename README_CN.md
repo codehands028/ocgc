@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-16%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-18%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -41,8 +41,9 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **Windows 运行进程探测** | ❌ 失败（找不到 `pgrep` 命令） | ✅ **`tasklist` CSV 智能匹配**（识别 `opencode.exe`, `opencode-server.exe` 等） |
 | **只读 SQLite 连接处理** | ⚠️ 简易字符串拼接（在 Windows 盘符下极易出错） | ✅ **跨平台标准的 `path.resolve().as_uri()`** |
 | **磁盘孤立 Diff 文件检测** | ⚠️ 仅针对 v1 | ✅ **自适应 v1/v2 数据库识别磁盘孤立文件** |
+| **临时工具输出缓存清理** | ❌ 无 | ✅ **原生支持（`--clean-tool-output`，带时间过滤与并发防护）** |
 | **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **16 项端到端综合测试**（覆盖 v1/v2 全部核心流程） |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **18 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
 
 ---
 
@@ -226,12 +227,16 @@ ocgc purge --clean-orphans
 
 # 清理所有项目的 Git snapshot 快照（OpenCode 后续在需要时会自动重新创建）
 ocgc purge --clean-snapshots
+
+# 清理工具执行产生的临时标准输出缓存文件（支持通过 --older-than 过滤过期文件）
+ocgc purge --clean-tool-output
+ocgc purge --clean-tool-output --older-than 7d
 ```
 
 #### 组合批量清理与无交互模式
 ```bash
-# 一键清理孤立文件、Git 快照，并清理两周前的子代理会话（--force 免交互确认）
-ocgc purge --clean-orphans --clean-snapshots --subagents --older-than 14d --force
+# 一键清理孤立文件、Git 快照、过期工具输出缓存，并清理两周前的子代理会话（--force 免交互确认）
+ocgc purge --clean-orphans --clean-snapshots --clean-tool-output --subagents --older-than 14d --force
 ```
 
 ---

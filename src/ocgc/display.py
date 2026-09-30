@@ -101,7 +101,8 @@ def print_status(
     diff_info = f"{format_bytes(fs_stats.session_diff_size)}  ({fs_stats.session_diff_count} files)"
     header.add_row("Session diffs", diff_info)
     header.add_row("Snapshots", f"{format_bytes(fs_stats.snapshot_size)}  ({fs_stats.snapshot_count} projects)")
-    header.add_row("Tool output", format_bytes(fs_stats.tool_output_size))
+    tool_info = f"{format_bytes(fs_stats.tool_output_size)}  ({fs_stats.tool_output_count} files)"
+    header.add_row("Tool output", tool_info)
     grand_total = db_info.total_size + fs_stats.total_size
     header.add_row("Total on disk", f"[bold]{format_bytes(grand_total)}[/]")
     header.add_row("", "")
@@ -274,7 +275,8 @@ def print_analysis(
     diff_info = f"{format_bytes(fs_stats.session_diff_size)}  ({fs_stats.session_diff_count} files)"
     summary.add_row("Session diffs", diff_info)
     summary.add_row("Snapshots", f"{format_bytes(fs_stats.snapshot_size)}  ({fs_stats.snapshot_count} projects)")
-    summary.add_row("Tool output", format_bytes(fs_stats.tool_output_size))
+    tool_info = f"{format_bytes(fs_stats.tool_output_size)}  ({fs_stats.tool_output_count} files)"
+    summary.add_row("Tool output", tool_info)
     if orphan_count > 0:
         summary.add_row("Orphan diffs", f"[{C_WARN}]{orphan_count} files ({format_bytes(orphan_bytes)})[/]")
 

@@ -287,3 +287,47 @@ def run_clean_orphans(dry_run: bool, force: bool) -> None:
 
     result = db.purge_orphan_diffs(orphans)
     console.print(f"[green]Deleted {result.files_deleted} orphan file(s), freed {format_bytes(result.bytes_freed)}.[/]")
+
+
+def run_clean_tool_output(older_than: str | None, dry_run: bool, force: bool) -> None:
+    if db.check_opencode_running():
+        warn_opencode_running()
+        if not dry_run and not force and not click.confirm(
+            "opencode is running and may be writing tool output. Continue anyway?"
+        ):
+            return
+
+    older_than_ms = parse_duration(older_than) if older_than else None
+    now_ms = int(time.time() * 1000)
+    files = db.get_tool_output_files(older_than_ms=older_than_ms, now_ms=now_ms)
+    if not files:
+        if older_than:
+            console.print(f"[dim]No tool output files found older than {older_than}.[/]")
+        else:
+            console.print("[dim]No tool output files found.[/]")
+        return
+
+    total_bytes = sum(f.size for f in files)
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+    grid.add_row("Tool output files", str(len(files)))
+    grid.add_row("Total size", format_bytes(total_bytes))
+    if older_than:
+        grid.add_row("Filter", f"older than {older_than}")
+
+    label = "[bold yellow]Dry Run — Tool output files to delete[/]" if dry_run else "[bold red]Clean Tool Output[/]"
+    border = "yellow" if dry_run else "red"
+    console.print(Panel(grid, title=label, border_style=border))
+
+    if dry_run:
+        return
+
+    prompt = f"Delete {len(files)} tool output file(s)?"
+    if not force and not click.confirm(prompt):
+        return
+
+    result = db.purge_tool_outputs(files)
+    freed = format_bytes(result.bytes_freed)
+    console.print(f"[green]Deleted {result.files_deleted} tool output file(s), freed {freed}.[/]")

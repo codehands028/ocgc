@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-16%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-18%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -41,8 +41,9 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Windows Process Detection** | ❌ Fails (`pgrep` not found) | ✅ **`tasklist` CSV inspection** (`opencode.exe`, `opencode-server.exe`, etc.) |
 | **SQLite Read-Only URI Handling** | ⚠️ Fragile string formatting | ✅ **Standard `path.resolve().as_uri()`** across all OSes |
 | **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
+| **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **16 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **18 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -225,12 +226,16 @@ ocgc purge --clean-orphans
 
 # Delete all git snapshot repositories (recreated automatically by OpenCode when needed)
 ocgc purge --clean-snapshots
+
+# Delete cached tool execution output files (supports filtering with --older-than)
+ocgc purge --clean-tool-output
+ocgc purge --clean-tool-output --older-than 7d
 ```
 
 #### Batch Execution & Non-Interactive Mode
 ```bash
 # Combine multiple cleanup operations with non-interactive confirmation (--force)
-ocgc purge --clean-orphans --clean-snapshots --subagents --older-than 14d --force
+ocgc purge --clean-orphans --clean-snapshots --clean-tool-output --subagents --older-than 14d --force
 ```
 
 ---

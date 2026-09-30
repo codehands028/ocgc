@@ -39,7 +39,10 @@ def analyze() -> None:
 
 
 @cli.command()
-@click.option("--older-than", default=None, help="Delete sessions older than duration (e.g., 15m, 1h, 7d, 2w, 3mo)")
+@click.option(
+    "--older-than", default=None,
+    help="Filter sessions or tool output older than duration (e.g., 15m, 1h, 7d, 2w, 3mo)",
+)
 @click.option("--subagents", is_flag=True, default=False, help="Delete subagent sessions (parent_id IS NOT NULL)")
 @click.option("--larger-than", default=None, help="Delete sessions larger than size (e.g., 50M, 1G)")
 @click.option("--strip-reasoning", is_flag=True, default=False, help="Remove reasoning parts only (keeps sessions)")
@@ -49,6 +52,10 @@ def analyze() -> None:
 @click.option(
     "--clean-orphans", is_flag=True, default=False,
     help="Delete orphan session diff files (no matching session)",
+)
+@click.option(
+    "--clean-tool-output", is_flag=True, default=False,
+    help="Delete cached tool output files (filters by --older-than if provided)",
 )
 @click.option("--dry-run", "-n", is_flag=True, default=False, help="Show what would be deleted without doing it")
 @click.option("--force", "-f", is_flag=True, default=False, help="Skip confirmation prompt")
@@ -61,18 +68,19 @@ def purge(
     keep_latest: int | None,
     clean_snapshots: bool,
     clean_orphans: bool,
+    clean_tool_output: bool,
     dry_run: bool,
     force: bool,
 ) -> None:
     """Delete sessions by age, type, size, or ID."""
     if keep_latest is not None and keep_latest < 0:
         raise click.BadParameter("must be a non-negative integer", param_hint="'--keep-latest'")
-    from ocgc.purger import run_clean_orphans, run_clean_snapshots, run_purge
+    from ocgc.purger import run_clean_orphans, run_clean_snapshots, run_clean_tool_output, run_purge
 
     if clean_snapshots:
         run_clean_snapshots(dry_run=dry_run, force=force)
         has_more = (
-            clean_orphans or older_than or subagents
+            clean_orphans or clean_tool_output or older_than or subagents
             or larger_than or session_ids
             or keep_latest is not None or strip_reasoning
         )
@@ -81,6 +89,16 @@ def purge(
 
     if clean_orphans:
         run_clean_orphans(dry_run=dry_run, force=force)
+        has_more = (
+            clean_tool_output or older_than or subagents or larger_than
+            or session_ids or keep_latest is not None
+            or strip_reasoning
+        )
+        if not has_more:
+            return
+
+    if clean_tool_output:
+        run_clean_tool_output(older_than=older_than, dry_run=dry_run, force=force)
         has_more = (
             older_than or subagents or larger_than
             or session_ids or keep_latest is not None

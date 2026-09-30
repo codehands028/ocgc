@@ -9,6 +9,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,10 +70,18 @@ class FilesystemStats:
     tool_output_size: int
     session_diff_count: int
     snapshot_count: int
+    tool_output_count: int = 0
 
     @property
     def total_size(self) -> int:
         return self.session_diff_size + self.snapshot_size + self.tool_output_size
+
+
+@dataclass
+class ToolOutputFile:
+    path: Path
+    size: int
+    mtime_ns: int
 
 
 @dataclass
@@ -882,11 +891,26 @@ def get_storage_dir() -> Path:
     return get_db_path().parent
 
 
+def _dir_stats(path: Path) -> tuple[int, int]:
+    """Return (total_size, file_count) for all regular files in a directory tree."""
+    if not path.is_dir():
+        return 0, 0
+    size = 0
+    count = 0
+    for f in path.rglob("*"):
+        try:
+            st = f.stat()
+            if stat.S_ISREG(st.st_mode):
+                size += st.st_size
+                count += 1
+        except OSError:
+            continue
+    return size, count
+
+
 def _dir_size(path: Path) -> int:
     """Return total size of all files in a directory tree."""
-    if not path.is_dir():
-        return 0
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    return _dir_stats(path)[0]
 
 
 def get_filesystem_stats() -> FilesystemStats:
@@ -898,13 +922,15 @@ def get_filesystem_stats() -> FilesystemStats:
 
     diff_count = len(list(diff_dir.glob("*.json"))) if diff_dir.is_dir() else 0
     snap_count = len([d for d in snap_dir.iterdir() if d.is_dir()]) if snap_dir.is_dir() else 0
+    tool_size, tool_count = _dir_stats(tool_dir)
 
     return FilesystemStats(
         session_diff_size=_dir_size(diff_dir),
         snapshot_size=_dir_size(snap_dir),
-        tool_output_size=_dir_size(tool_dir),
+        tool_output_size=tool_size,
         session_diff_count=diff_count,
         snapshot_count=snap_count,
+        tool_output_count=tool_count,
     )
 
 
@@ -970,20 +996,28 @@ def get_snapshot_projects() -> list[tuple[str, int]]:
     return projects
 
 
-def _rmtree_force_writable(path: str) -> None:
+def _force_writable(path: str | Path) -> None:
     with contextlib.suppress(OSError):
-        os.chmod(path, stat.S_IWRITE)
+        p_str = str(path)
+        if sys.platform == "win32":
+            os.chmod(p_str, stat.S_IWRITE)
+        else:
+            try:
+                current_mode = os.stat(p_str).st_mode
+                os.chmod(p_str, current_mode | stat.S_IWUSR)
+            except OSError:
+                os.chmod(p_str, stat.S_IWUSR | stat.S_IRUSR)
 
 
 def _rmtree_safe(path: Path) -> None:
     def _on_error_cb(func: object, p: str, exc_info: object) -> None:
-        _rmtree_force_writable(p)
+        _force_writable(p)
         if callable(func):
             with contextlib.suppress(OSError):
                 func(p)
 
     def _on_exc_cb(func: object, p: str, exc: object) -> None:
-        _rmtree_force_writable(p)
+        _force_writable(p)
         if callable(func):
             with contextlib.suppress(OSError):
                 func(p)
@@ -1013,6 +1047,104 @@ def purge_snapshots(project: str | None = None) -> PurgeFilesResult:
                 result.bytes_freed += _dir_size(d)
                 _rmtree_safe(d)
                 result.files_deleted += 1
+
+    return result
+
+
+def get_tool_output_files(
+    older_than_ms: int | None = None,
+    now_ms: int | None = None,
+) -> list[ToolOutputFile]:
+    """Find files in tool-output/ directory, optionally older than older_than_ms."""
+    tool_dir = get_storage_dir() / "tool-output"
+    if not tool_dir.is_dir():
+        return []
+
+    cutoff: int | None = None
+    if older_than_ms is not None:
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
+        cutoff = now_ms - older_than_ms
+
+    files: list[ToolOutputFile] = []
+    for f in tool_dir.rglob("*"):
+        try:
+            st = f.stat()
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if cutoff is not None and (st.st_mtime_ns // 1_000_000) >= cutoff:
+                continue
+            files.append(ToolOutputFile(path=f, size=st.st_size, mtime_ns=st.st_mtime_ns))
+        except OSError:
+            continue
+    return sorted(files, key=lambda x: str(x.path))
+
+
+def purge_tool_outputs(files: list[ToolOutputFile]) -> PurgeFilesResult:
+    """Delete tool output files. Best-effort."""
+    result = PurgeFilesResult()
+    for f in files:
+        try:
+            st = f.path.stat()
+        except OSError:
+            continue
+
+        # If file was modified or changed size after scan, skip deletion to preserve newly written data
+        if f.mtime_ns > 0 and (st.st_mtime_ns > f.mtime_ns or st.st_size != f.size):
+            continue
+
+        try:
+            f.path.unlink()
+            result.files_deleted += 1
+            result.bytes_freed += st.st_size
+        except PermissionError:
+            parent = f.path.parent
+            orig_mode: int | None = None
+            if sys.platform != "win32":
+                with contextlib.suppress(OSError):
+                    orig_mode = parent.stat().st_mode
+                _force_writable(parent)
+            else:
+                _force_writable(f.path)
+            try:
+                f.path.unlink()
+                result.files_deleted += 1
+                result.bytes_freed += st.st_size
+            except (FileNotFoundError, OSError):
+                pass
+            finally:
+                if orig_mode is not None:
+                    with contextlib.suppress(OSError):
+                        os.chmod(str(parent), stat.S_IMODE(orig_mode))
+        except (FileNotFoundError, OSError):
+            pass
+
+    tool_dir = get_storage_dir() / "tool-output"
+    if tool_dir.is_dir():
+        for d in sorted(tool_dir.rglob("*"), reverse=True):
+            try:
+                if d.is_symlink() or not d.is_dir():
+                    continue
+                d.rmdir()
+            except PermissionError:
+                parent_dir = d.parent
+                orig_dir_mode: int | None = None
+                if sys.platform != "win32":
+                    with contextlib.suppress(OSError):
+                        orig_dir_mode = parent_dir.stat().st_mode
+                    _force_writable(parent_dir)
+                else:
+                    _force_writable(d)
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+                finally:
+                    if orig_dir_mode is not None:
+                        with contextlib.suppress(OSError):
+                            os.chmod(str(parent_dir), stat.S_IMODE(orig_dir_mode))
+            except OSError:
+                continue
 
     return result
 
