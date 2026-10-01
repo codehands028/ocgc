@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-37%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -43,8 +43,9 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
 | **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
 | **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
+| **Lightweight WAL Checkpoint** | ❌ None | ✅ **Millisecond reset (`ocgc checkpoint` with TRUNCATE)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **27 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **37 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -272,7 +273,21 @@ ocgc purge --clean-orphans --clean-snapshots --clean-tool-output --subagents --o
 
 ---
 
-### 3. Reclaim Physical Disk Space (`ocgc vacuum`)
+### 3. Fast WAL Merging & Truncation (`ocgc checkpoint`)
+
+SQLite in Write-Ahead Logging (WAL) mode appends write transactions into `opencode.db-wal`, which can grow to hundreds of megabytes and may not shrink automatically. While `vacuum` fully rebuilds the database (which can take minutes and requires 2× free disk space), `checkpoint` synchronously flushes all WAL pages into the main database and resets the WAL file to 0 bytes in milliseconds without heavy I/O or space doubling:
+
+```bash
+# Flush and reset WAL log to 0 bytes (default: TRUNCATE)
+ocgc checkpoint
+
+# Optional modes: truncate (default), restart, full, passive
+ocgc checkpoint --mode truncate
+```
+
+---
+
+### 4. Reclaim Physical Disk Space (`ocgc vacuum`)
 
 SQLite does not automatically shrink its `.db` file when rows are deleted; it retains empty pages for future writes. Run `vacuum` to release free space back to the operating system:
 

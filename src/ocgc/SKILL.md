@@ -38,6 +38,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Preview Purge (Dry-run)** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --dry-run` |
 | **Targeted Project Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --project <name> --dry-run` |
 | **Strip Reasoning Only** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --strip-reasoning` |
+| **Flush & Reset WAL Log** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc checkpoint` |
 | **Reclaim SQLite Disk Space**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc vacuum` |
 
 > *Note: If `ocgc` is installed globally via `uv tool install` or `pipx`, replace the `uvx ...` prefix with `ocgc`.*
@@ -46,7 +47,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 
 ## Recommended Workflow
 
-Always follow the **Inspect -> Dry-Run -> Purge -> Vacuum** sequence to prevent unintended data loss.
+Always follow the **Inspect -> Dry-Run -> Purge -> Checkpoint / Vacuum** sequence to prevent unintended data loss.
 
 ### 1. Inspect Storage State
 
@@ -100,7 +101,15 @@ ocgc purge --project legacy-repo
 ocgc purge --clean-snapshots --project legacy-repo
 ```
 
-### 4. Shrink SQLite File (VACUUM)
+### 4. Fast WAL Checkpoint (`ocgc checkpoint`)
+
+SQLite in Write-Ahead Logging (WAL) mode appends write transactions into `opencode.db-wal`. To synchronously flush WAL frames into `opencode.db` and reset the WAL file to 0 bytes in milliseconds without running a slow VACUUM:
+
+```bash
+ocgc checkpoint
+```
+
+### 5. Shrink SQLite File (VACUUM)
 
 Deleting rows in SQLite marks pages as free but does not shrink the `.db` file on disk. Run `vacuum` to physically reclaim the storage:
 
@@ -135,6 +144,7 @@ Filters can be combined:
 | Problem | Cause | Solution |
 | :--- | :--- | :--- |
 | `Database is locked` | OpenCode is running in the background | Terminate `opencode` / `opencode-server` processes before running `purge` or `vacuum`. |
+| WAL log (`opencode.db-wal`) is huge | SQLite retains unmerged WAL frames | Run `ocgc checkpoint` to immediately flush and truncate WAL to 0 bytes. |
 | DB size didn't decrease after `purge` | SQLite keeps free pages internally | Run `ocgc vacuum` to compact the database file. |
 | `Insufficient disk space for VACUUM` | SQLite creates a copy during vacuum | Free temporary space elsewhere, or move the DB to an external drive temporarily. |
 | Windows permission error on snapshots | Git packfiles are marked read-only | `ocgc` automatically clears read-only attributes with `_rmtree_safe`; ensure no editor holds file locks. |

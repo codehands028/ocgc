@@ -1300,6 +1300,233 @@ def test_snapshot_dual_filter_intersection(tmp_path: Path, monkeypatch: pytest.M
     assert res2[0][0] == "proj_a"
 
 
+def test_checkpoint_db_truncate(tmp_path: Path) -> None:
+    db_path = tmp_path / "wal_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, content TEXT)")
+    conn.commit()
+
+    # Keep a background reader open to prevent automatic checkpoint on close
+    bg_reader = sqlite3.connect(str(db_path))
+    bg_reader.execute("PRAGMA journal_mode=WAL")
+
+    # Generate WAL frames
+    for i in range(50):
+        conn.execute("INSERT INTO t VALUES (?, ?)", (i, "payload data " * 100))
+    conn.commit()
+    conn.close()
+
+    wal_path = Path(str(db_path) + "-wal")
+    assert wal_path.exists()
+    assert wal_path.stat().st_size > 0
+    wal_size_before = wal_path.stat().st_size
+
+    result = db.checkpoint_db(mode="truncate", path=db_path)
+    bg_reader.close()
+
+    assert result.mode == "TRUNCATE"
+    assert result.busy == 0
+    assert result.wal_before == wal_size_before
+    assert result.wal_after == 0
+    assert result.wal_saved == wal_size_before
+    assert result.log_frames >= 0
+    assert result.checkpointed_frames >= 0
+
+
+def test_checkpoint_db_modes(tmp_path: Path) -> None:
+    db_path = tmp_path / "modes_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (x TEXT)")
+    conn.commit()
+    conn.close()
+
+    for mode in ["PASSIVE", "FULL", "RESTART", "TRUNCATE", "truncate", "passive"]:
+        res = db.checkpoint_db(mode=mode, path=db_path)
+        assert res.mode == mode.upper()
+        assert res.busy == 0
+
+    with pytest.raises(ValueError, match="Invalid checkpoint mode"):
+        db.checkpoint_db(mode="invalid_mode", path=db_path)
+
+
+def test_checkpoint_db_nonexistent(tmp_path: Path) -> None:
+    nonexistent = tmp_path / "nonexistent.db"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        db.checkpoint_db(path=nonexistent)
+
+
+def test_checkpoint_db_busy_state(tmp_path: Path) -> None:
+    db_path = tmp_path / "busy_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, content TEXT)")
+    conn.commit()
+
+    # Background reader starts active read transaction
+    reader = sqlite3.connect(str(db_path))
+    reader.execute("PRAGMA journal_mode=WAL")
+
+    # Generate WAL frames
+    for i in range(50):
+        conn.execute("INSERT INTO t VALUES (?, ?)", (i, "payload data " * 100))
+    conn.commit()
+    conn.close()
+
+    reader.execute("BEGIN")
+    reader.execute("SELECT * FROM t LIMIT 1").fetchall()
+
+    # Checkpoint should report busy because reader holds an open transaction
+    result_busy = db.checkpoint_db(mode="TRUNCATE", path=db_path)
+    assert result_busy.busy == 1
+    assert result_busy.wal_after > 0
+
+    # Once reader commits, checkpoint succeeds completely
+    reader.commit()
+    reader.close()
+
+    result_ok = db.checkpoint_db(mode="TRUNCATE", path=db_path)
+    assert result_ok.busy == 0
+    assert result_ok.wal_after == 0
+
+
+def test_cli_checkpoint_and_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    db_path = tmp_path / "cli_checkpoint.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, text TEXT)")
+    conn.commit()
+
+    bg = sqlite3.connect(str(db_path))
+    bg.execute("PRAGMA journal_mode=WAL")
+
+    for i in range(50):
+        conn.execute("INSERT INTO t VALUES (?, ?)", (i, "log content " * 100))
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    # 1. Default CLI checkpoint
+    res = runner.invoke(cli, ["checkpoint"])
+    assert res.exit_code == 0
+    assert "WAL Checkpoint Complete" in res.output
+    assert "TRUNCATE" in res.output
+    assert "Completed" in res.output
+
+    # 2. Modes via CLI
+    res_passive = runner.invoke(cli, ["checkpoint", "--mode", "passive"])
+    assert res_passive.exit_code == 0
+    assert "PASSIVE" in res_passive.output
+
+    res_invalid = runner.invoke(cli, ["checkpoint", "--mode", "invalid"])
+    assert res_invalid.exit_code != 0
+    assert "Invalid value for '--mode'" in res_invalid.output
+
+    bg.close()
+
+
+def test_cli_checkpoint_running_prompt_and_force(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.delenv("OCGC_SKIP_RUNNING_CHECK", raising=False)
+    monkeypatch.setattr(db, "check_opencode_running", lambda: True)
+
+    db_path = tmp_path / "running_check.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (x TEXT)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    # User cancels at prompt
+    res_cancel = runner.invoke(cli, ["checkpoint"], input="n\n")
+    assert res_cancel.exit_code == 0
+    assert "opencode is currently running" in res_cancel.output
+    assert "WAL Checkpoint Complete" not in res_cancel.output
+
+    # User proceeds with --force
+    res_force = runner.invoke(cli, ["checkpoint", "--force"])
+    assert res_force.exit_code == 0
+    assert "WAL Checkpoint Complete" in res_force.output
+
+
+def test_cli_checkpoint_locked_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    db_path = tmp_path / "locked.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    def mock_checkpoint_locked(*args: object, **kwargs: object) -> object:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "checkpoint_db", mock_checkpoint_locked)
+
+    res = runner.invoke(cli, ["checkpoint"])
+    assert res.exit_code != 0
+    assert "Database is locked" in res.output
+
+
+def test_vacuum_db_with_path(tmp_path: Path) -> None:
+    db_path = tmp_path / "vac.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE t (x TEXT)")
+    conn.commit()
+    conn.close()
+
+    before, after = db.vacuum_db(path=db_path)
+    assert before > 0
+    assert after > 0
+
+
+def test_vacuum_db_nonexistent(tmp_path: Path) -> None:
+    nonexistent = tmp_path / "nonexistent.db"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        db.vacuum_db(path=nonexistent)
+
+
+def test_cli_checkpoint_busy_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    db_path = tmp_path / "busy_cli.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    from ocgc.db import CheckpointResult
+
+    fake_busy_result = CheckpointResult(
+        mode="TRUNCATE",
+        busy=1,
+        log_frames=10,
+        checkpointed_frames=10,
+        wal_before=1000,
+        wal_after=1000,
+        db_before=4096,
+        db_after=4096,
+        total_before=5096,
+        total_after=5096,
+    )
+    monkeypatch.setattr(db, "checkpoint_db", lambda *args, **kwargs: fake_busy_result)
+
+    res = runner.invoke(cli, ["checkpoint"])
+    assert res.exit_code == 1
+    assert "WAL Checkpoint Incomplete" in res.output
+    assert "Busy (locks held)" in res.output
+
+
 
 
 

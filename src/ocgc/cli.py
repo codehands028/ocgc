@@ -142,6 +142,23 @@ def purge(
 
 
 @cli.command()
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["truncate", "restart", "full", "passive"], case_sensitive=False),
+    default="truncate",
+    show_default=True,
+    help="Checkpoint mode (truncate resets WAL to 0 bytes)",
+)
+@click.option("--force", "-f", is_flag=True, default=False, help="Skip confirmation prompt if opencode is running")
+def checkpoint(mode: str, force: bool) -> None:
+    """Flush opencode.db-wal pages into the main database (TRUNCATE also resets WAL to 0 bytes)."""
+    from ocgc.purger import run_checkpoint
+
+    run_checkpoint(mode=mode, force=force)
+
+
+@cli.command()
 @click.option("--force", "-f", is_flag=True, default=False, help="Skip confirmation prompt")
 def vacuum(force: bool) -> None:
     """Run VACUUM to reclaim disk space after purge."""

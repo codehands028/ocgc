@@ -15,6 +15,7 @@ from ocgc.display import (
     C_VALUE,
     console,
     format_bytes,
+    print_checkpoint_result,
     print_purge_summary,
     print_reasoning_summary,
     print_vacuum_result,
@@ -222,7 +223,43 @@ def run_purge(
     finally:
         conn.close()
 
-    console.print("[dim]Run 'ocgc vacuum' to reclaim disk space.[/]")
+    console.print("[dim]Run 'ocgc checkpoint' to shrink WAL or 'ocgc vacuum' to reclaim DB pages.[/]")
+
+
+def run_checkpoint(mode: str = "truncate", force: bool = False) -> None:
+    """Run WAL checkpoint to flush and truncate opencode.db-wal."""
+    if db.check_opencode_running():
+        warn_opencode_running()
+        if not force and not click.confirm(
+            "opencode is currently running. Checkpoint might not truncate if locks are held. Continue anyway?"
+        ):
+            return
+
+    path = db.get_db_path()
+    if not path.exists():
+        click.echo(f"Error: Database not found at {path}", err=True)
+        raise SystemExit(1)
+
+    norm_mode = mode.upper().strip()
+    with console.status(f"[bold cyan]Running WAL checkpoint ({norm_mode})...[/]"):
+        try:
+            result = db.checkpoint_db(mode=norm_mode)
+        except sqlite3.OperationalError as e:
+            err_msg = str(e).lower()
+            if "locked" in err_msg or "busy" in err_msg:
+                console.print("[red]Error:[/] Database is locked. Is opencode still running? Close it and try again.")
+            elif "readonly" in err_msg or "permission" in err_msg:
+                console.print(f"[red]Error:[/] Database permission error: {e}")
+            else:
+                console.print(f"[red]Error:[/] Checkpoint failed: {e}")
+            raise SystemExit(1) from None
+        except (FileNotFoundError, sqlite3.Error, OSError) as e:
+            console.print(f"[red]Error:[/] Checkpoint failed: {e}")
+            raise SystemExit(1) from None
+
+    print_checkpoint_result(result)
+    if result.busy != 0:
+        raise SystemExit(1)
 
 
 def run_vacuum(force: bool = False) -> None:

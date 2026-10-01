@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ocgc.db import DBInfo, FilesystemStats, PartTypeStats, SessionRow
+from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, SessionRow
 
 console = Console()
 
@@ -375,4 +375,77 @@ def print_vacuum_result(before: int, after: int) -> None:
             "If ocgc helped you, consider starring on GitHub: "
             "[link=https://github.com/codehands028/ocgc]https://github.com/codehands028/ocgc[/link] ⭐️[/dim]"
         )
+
+
+def print_checkpoint_result(result: CheckpointResult) -> None:
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+    grid.add_row("Mode", result.mode)
+    grid.add_row("Frames", f"{result.checkpointed_frames} checkpointed / {result.log_frames} total")
+    grid.add_row("WAL before", format_bytes(result.wal_before))
+    grid.add_row("WAL after", format_bytes(result.wal_after))
+    db_size_str = (
+        f"{format_bytes(result.db_before)} -> {format_bytes(result.db_after)}"
+        if result.db_before != result.db_after
+        else format_bytes(result.db_after)
+    )
+    grid.add_row("DB size", db_size_str)
+    grid.add_row("Total before", format_bytes(result.total_before))
+    grid.add_row("Total after", format_bytes(result.total_after))
+
+    saved = result.saved
+    if saved > 0:
+        grid.add_row("Saved", f"[{C_SUCCESS}]{format_bytes(saved)}[/]")
+    elif result.wal_saved > 0:
+        grid.add_row("WAL reclaimed", f"[{C_SUCCESS}]{format_bytes(result.wal_saved)}[/]")
+    else:
+        grid.add_row("Saved", "0 B")
+
+    status_str = f"[{C_SUCCESS}]Completed[/]" if result.busy == 0 else "[yellow]Busy (locks held)[/]"
+    grid.add_row("Status", status_str)
+
+    if result.busy == 0:
+        panel_title = "[bold cyan]WAL Checkpoint Complete[/]"
+        border_color = "cyan"
+    else:
+        panel_title = "[bold yellow]WAL Checkpoint Incomplete[/]"
+        border_color = "yellow"
+    console.print(Panel(grid, title=panel_title, border_style=border_color))
+
+    if result.busy != 0:
+        if result.mode == "TRUNCATE":
+            console.print(
+                "\n[yellow]Warning:[/] Checkpoint could not fully truncate WAL because the database was busy "
+                "(active readers or uncommitted transactions). Close OpenCode and run 'ocgc checkpoint' again."
+            )
+        else:
+            console.print(
+                f"\n[yellow]Warning:[/] {result.mode} checkpoint could not complete because the database was busy "
+                "(active readers or uncommitted transactions). Close OpenCode and run 'ocgc checkpoint' again."
+            )
+    elif saved > 0:
+        console.print(
+            f"\n[dim]✨ Reclaimed [bold]{format_bytes(saved)}[/bold] of disk space! "
+            "If ocgc helped you, consider starring on GitHub: "
+            "[link=https://github.com/codehands028/ocgc]https://github.com/codehands028/ocgc[/link] ⭐️[/dim]"
+        )
+    elif result.wal_saved > 0:
+        action = "Flushed and truncated" if result.mode == "TRUNCATE" else "Flushed"
+        console.print(
+            f"\n[dim]✨ {action} [bold]{format_bytes(result.wal_saved)}[/bold] "
+            "of WAL log into main database.[/dim]"
+        )
+    elif result.checkpointed_frames > 0:
+        console.print(
+            f"\n[dim]✨ Checkpointed [bold]{result.checkpointed_frames}[/bold] WAL frame(s) into the main database. "
+            f"Mode [bold]{result.mode}[/bold] does not truncate the WAL file, so its disk size remains unchanged.[/dim]"
+        )
+    elif result.wal_after > 0:
+        console.print(
+            f"\n[dim]No new frames to checkpoint; WAL still occupies {format_bytes(result.wal_after)} "
+            "on disk (pre-allocated/active).[/dim]"
+        )
+    else:
+        console.print("\n[dim]WAL was already empty (0 B). No pages needed checkpointing.[/dim]")
 

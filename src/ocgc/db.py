@@ -42,6 +42,30 @@ class DBInfo:
 
 
 @dataclass
+class CheckpointResult:
+    mode: str
+    busy: int  # 0 = completed, 1 = busy/locked
+    log_frames: int
+    checkpointed_frames: int
+    wal_before: int
+    wal_after: int
+    db_before: int
+    db_after: int
+    total_before: int
+    total_after: int
+
+    @property
+    def saved(self) -> int:
+        """Net bytes freed across all database files (DB + WAL + SHM)."""
+        return max(0, self.total_before - self.total_after)
+
+    @property
+    def wal_saved(self) -> int:
+        """Bytes freed specifically from the WAL file."""
+        return max(0, self.wal_before - self.wal_after)
+
+
+@dataclass
 class SessionRow:
     id: str
     parent_id: str | None
@@ -152,15 +176,15 @@ def check_opencode_running() -> bool:
         return False
 
 
-def connect(readonly: bool = True) -> sqlite3.Connection:
-    path = get_db_path()
-    if not path.exists():
-        raise FileNotFoundError(f"OpenCode database not found at {path}")
+def connect(readonly: bool = True, path: Path | None = None) -> sqlite3.Connection:
+    target_path = path if path is not None else get_db_path()
+    if not target_path.exists():
+        raise FileNotFoundError(f"OpenCode database not found at {target_path}")
     if readonly:
-        uri = f"{path.resolve().as_uri()}?mode=ro"
+        uri = f"{target_path.resolve().as_uri()}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
     else:
-        conn = sqlite3.connect(str(path))
+        conn = sqlite3.connect(str(target_path))
     conn.row_factory = sqlite3.Row
     if not readonly:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -1353,14 +1377,78 @@ def purge_tool_outputs(files: list[ToolOutputFile]) -> PurgeFilesResult:
     return result
 
 
-def vacuum_db() -> tuple[int, int]:
+def checkpoint_db(mode: str = "TRUNCATE", path: Path | None = None) -> CheckpointResult:
+    """Run WAL checkpoint on the OpenCode SQLite database.
+
+    Synchronously merges WAL pages back into the main database file and
+    optionally truncates the WAL file to 0 bytes.
+
+    Args:
+        mode: Checkpoint mode ('PASSIVE', 'FULL', 'RESTART', or 'TRUNCATE').
+              Defaults to 'TRUNCATE'.
+        path: Optional explicit path to the database file. If None, resolves
+              via get_db_path().
+
+    Returns:
+        CheckpointResult with before/after byte sizes and checkpoint frames.
+
+    Raises:
+        FileNotFoundError: If the database file does not exist.
+        ValueError: If mode is not one of PASSIVE, FULL, RESTART, TRUNCATE.
+        sqlite3.OperationalError: If SQLite encounters a locking or I/O error.
+    """
+    target_path = path if path is not None else get_db_path()
+    if not target_path.exists():
+        raise FileNotFoundError(f"OpenCode database not found at {target_path}")
+
+    norm_mode = mode.upper().strip()
+    valid_modes = {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}
+    if norm_mode not in valid_modes:
+        raise ValueError(f"Invalid checkpoint mode: {mode!r}. Must be one of {', '.join(sorted(valid_modes))}")
+
+    wal_path = Path(str(target_path) + "-wal")
+    wal_before = wal_path.stat().st_size if wal_path.exists() else 0
+    db_before = target_path.stat().st_size
+    total_before = _total_db_size(target_path)
+
+    conn = connect(readonly=False, path=target_path)
+    try:
+        cursor = conn.execute(f"PRAGMA wal_checkpoint({norm_mode})")
+        row = cursor.fetchone()
+        busy = int(row[0]) if row and row[0] is not None else 0
+        log_frames = int(row[1]) if row and row[1] is not None else 0
+        checkpointed_frames = int(row[2]) if row and row[2] is not None else 0
+    finally:
+        conn.close()
+
+    wal_after = wal_path.stat().st_size if wal_path.exists() else 0
+    db_after = target_path.stat().st_size
+    total_after = _total_db_size(target_path)
+
+    return CheckpointResult(
+        mode=norm_mode,
+        busy=busy,
+        log_frames=max(0, log_frames),
+        checkpointed_frames=max(0, checkpointed_frames),
+        wal_before=wal_before,
+        wal_after=wal_after,
+        db_before=db_before,
+        db_after=db_after,
+        total_before=total_before,
+        total_after=total_after,
+    )
+
+
+def vacuum_db(path: Path | None = None) -> tuple[int, int]:
     """Run VACUUM. Returns (before_total, after_total) including WAL+SHM."""
-    path = get_db_path()
-    before = _total_db_size(path)
-    conn = connect(readonly=False)
+    target_path = path if path is not None else get_db_path()
+    if not target_path.exists():
+        raise FileNotFoundError(f"OpenCode database not found at {target_path}")
+    before = _total_db_size(target_path)
+    conn = connect(readonly=False, path=target_path)
     try:
         conn.execute("VACUUM")
     finally:
         conn.close()
-    after = _total_db_size(path)
+    after = _total_db_size(target_path)
     return before, after
