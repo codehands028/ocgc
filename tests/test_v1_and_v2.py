@@ -923,4 +923,383 @@ def test_cli_purge_tool_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert "No tool output files found" in res.output
 
 
+def test_filter_clause_building() -> None:
+    # Directory: absolute path
+    conds, params = db._build_filter_clause(directory="/Users/alice/my-repo", version=2)
+    assert len(conds) == 1
+    assert "COLLATE NOCASE" in conds[0]
+    assert params == ["/Users/alice/my-repo", "/Users/alice/my-repo/%"]
+
+    # Directory: relative current dir '.'
+    conds, params = db._build_filter_clause(directory=".", version=2)
+    assert len(conds) == 1
+    assert os.path.abspath(".").replace("\\", "/").rstrip("/") == params[0]
+
+    # Directory: wildcard
+    conds, params = db._build_filter_clause(directory="*my-repo*", version=2)
+    assert len(conds) == 1
+    assert "LIKE" in conds[0]
+    assert "%my-repo%" in params
+
+    # Directory: bare name
+    conds, params = db._build_filter_clause(directory="my-repo", version=2)
+    assert len(conds) == 1
+    assert params == ["my-repo", "%/my-repo", "%/my-repo/%"]
+
+    # Project: v2 exact
+    conds, params = db._build_filter_clause(project="proj_xyz", version=2)
+    assert len(conds) == 1
+    assert "s.project_id = ?" in conds[0]
+    assert "proj_xyz" in params
+
+    # Project: v2 wildcard
+    conds, params = db._build_filter_clause(project="*xyz*", version=2)
+    assert len(conds) == 1
+    assert "s.project_id LIKE" in conds[0]
+    assert "%xyz%" in params
+
+    # Project: v1 fallback to directory
+    conds, params = db._build_filter_clause(project="my-repo", version=1)
+    assert len(conds) == 1
+    assert "project_id" not in conds[0]
+    assert params == ["my-repo", "%/my-repo", "%/my-repo/%"]
+
+
+def test_get_sessions_filtered(tmp_path: Path) -> None:
+    # Test v1 filtering
+    db1 = tmp_path / "v1_filter.db"
+    conn1 = create_v1_db(db1)
+
+    # Exact directory match
+    s_exact = db.get_sessions(conn1, directory="/path/to/project")
+    assert len(s_exact) == 2
+
+    # Bare directory name
+    s_bare = db.get_sessions(conn1, directory="project")
+    assert len(s_bare) == 2
+
+    # Wildcard directory
+    s_wild = db.get_sessions(conn1, directory="*proj*")
+    assert len(s_wild) == 2
+
+    # Non-matching directory
+    s_none = db.get_sessions(conn1, directory="/path/to/other")
+    assert len(s_none) == 0
+
+    # Project name matching directory
+    s_proj = db.get_sessions(conn1, project="project")
+    assert len(s_proj) == 2
+
+    conn1.close()
+
+    # Test v2 filtering
+    db2 = tmp_path / "v2_filter.db"
+    conn2 = create_v2_db(db2)
+
+    # Filter by project_id
+    s2_proj = db.get_sessions(conn2, project="proj_1")
+    assert len(s2_proj) == 2
+    assert s2_proj[0].project_id == "proj_1"
+
+    # Filter by project wildcard
+    s2_wild = db.get_sessions(conn2, project="*proj*")
+    assert len(s2_wild) == 2
+
+    # Filter by directory
+    s2_dir = db.get_sessions(conn2, directory="/path/to/project")
+    assert len(s2_dir) == 2
+
+    # Non-matching project
+    s2_none = db.get_sessions(conn2, project="proj_nonexistent")
+    assert len(s2_none) == 0
+
+    conn2.close()
+
+
+def test_purge_session_ids_filtered(tmp_path: Path) -> None:
+    db2 = tmp_path / "v2_purge_filter.db"
+    conn2 = create_v2_db(db2)
+    now_ms = int(time.time() * 1000)
+
+    # Match by project_id
+    ids = db.get_session_ids_for_purge(conn2, project="proj_1")
+    assert sorted(ids) == ["ses_v2_root", "ses_v2_sub"]
+
+    # Match by directory
+    ids_dir = db.get_session_ids_for_purge(conn2, directory="/path/to/project")
+    assert sorted(ids_dir) == ["ses_v2_root", "ses_v2_sub"]
+
+    # Match by directory + subagents_only
+    ids_sub = db.get_session_ids_for_purge(conn2, directory="/path/to/project", subagents_only=True)
+    assert ids_sub == ["ses_v2_sub"]
+
+    # Match by directory + keep_latest 1
+    ids_keep = db.get_session_ids_for_purge(conn2, directory="/path/to/project", keep_latest=1)
+    assert ids_keep == ["ses_v2_root"]
+
+    # Non-matching directory
+    ids_empty = db.get_session_ids_for_purge(conn2, directory="/nonexistent/path")
+    assert ids_empty == []
+
+    # Combined with older_than_ms
+    ids_older = db.get_session_ids_for_purge(
+        conn2,
+        project="proj_1",
+        older_than_ms=int(1.5 * 86400 * 1000),
+        now_ms=now_ms,
+    )
+    assert ids_older == ["ses_v2_root"]
+
+    conn2.close()
+
+
+def test_snapshot_projects_and_purge_filtered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage_base = tmp_path / "opencode_storage"
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    snap_dir = storage_base / "snapshot"
+    snap_dir.mkdir(parents=True)
+
+    snap_a = snap_dir / "proj_alpha"
+    snap_a.mkdir()
+    (snap_a / "pack.dat").write_text("alpha data")
+
+    snap_b = snap_dir / "proj_beta"
+    snap_b.mkdir()
+    (snap_b / "pack.dat").write_text("beta data")
+
+    snap_legacy = snap_dir / "legacy-repo"
+    snap_legacy.mkdir()
+    (snap_legacy / "pack.dat").write_text("legacy data")
+
+    # All snapshot projects
+    all_projects = db.get_snapshot_projects()
+    assert len(all_projects) == 3
+    assert {name for name, _ in all_projects} == {"proj_alpha", "proj_beta", "legacy-repo"}
+
+    # Filter by exact project name
+    alpha_projects = db.get_snapshot_projects(project="proj_alpha")
+    assert len(alpha_projects) == 1
+    assert alpha_projects[0][0] == "proj_alpha"
+
+    # Filter by project wildcard
+    proj_wild = db.get_snapshot_projects(project="*proj*")
+    assert len(proj_wild) == 2
+    assert {name for name, _ in proj_wild} == {"proj_alpha", "proj_beta"}
+
+    # Filter by directory path (directory basename matches legacy-repo)
+    legacy_projects = db.get_snapshot_projects(directory="~/Projects/legacy-repo")
+    assert len(legacy_projects) == 1
+    assert legacy_projects[0][0] == "legacy-repo"
+
+    # Filter by non-existent project
+    none_projects = db.get_snapshot_projects(project="nonexistent")
+    assert len(none_projects) == 0
+
+    # Purge filtered snapshot by project
+    res_alpha = db.purge_snapshots(project="proj_alpha")
+    assert res_alpha.files_deleted == 1
+    assert not snap_a.exists()
+    assert snap_b.exists()
+    assert snap_legacy.exists()
+
+    # Purge filtered snapshot by directory
+    res_legacy = db.purge_snapshots(directory="/some/path/legacy-repo")
+    assert res_legacy.files_deleted == 1
+    assert not snap_legacy.exists()
+    assert snap_b.exists()
+
+
+def test_cli_sessions_and_purge_scoped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    storage_base = tmp_path / "opencode_storage"
+    storage_base.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    db2 = storage_base / "opencode.db"
+    create_v2_db(db2).close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db2))
+
+    # 1. sessions with matching --project
+    res = runner.invoke(cli, ["sessions", "--project", "proj_1"])
+    assert res.exit_code == 0
+    assert "V2 Root Session" in res.output
+
+    # 2. sessions with matching -p
+    res = runner.invoke(cli, ["sessions", "-p", "proj_1"])
+    assert res.exit_code == 0
+    assert "V2 Root Session" in res.output
+
+    # 3. sessions with non-matching --project
+    res = runner.invoke(cli, ["sessions", "--project", "nonexistent"])
+    assert res.exit_code == 0
+    assert "No sessions found matching the given criteria." in res.output
+
+    # 4. sessions with --directory
+    res = runner.invoke(cli, ["sessions", "--directory", "/path/to/project"])
+    assert res.exit_code == 0
+    assert "V2 Root Session" in res.output
+
+    # 5. sessions with -d short flag
+    res = runner.invoke(cli, ["sessions", "-d", "project"])
+    assert res.exit_code == 0
+    assert "V2 Root Session" in res.output
+
+    # 6. purge dry-run with --project
+    res = runner.invoke(cli, ["purge", "--project", "proj_1", "--dry-run"])
+    assert res.exit_code == 0
+    assert "Dry Run — Nothing will be deleted" in res.output
+    assert "Project filter" in res.output
+    assert "proj_1" in res.output
+
+    # 7. purge dry-run with --directory
+    res = runner.invoke(cli, ["purge", "--directory", "/path/to/project", "--dry-run"])
+    assert res.exit_code == 0
+    assert "Directory filter" in res.output
+    assert "/path/to/project" in res.output
+
+    # 8. snapshot cleanup with --clean-snapshots and --project
+    snap_dir = storage_base / "snapshot" / "proj_1"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    (snap_dir / "test.pack").write_text("snapshot content")
+
+    res = runner.invoke(cli, ["purge", "--clean-snapshots", "--project", "proj_1", "--dry-run"])
+    assert res.exit_code == 0
+    assert "Dry Run — Snapshots to delete" in res.output
+    assert "Project filter" in res.output
+    assert snap_dir.exists()
+
+    res = runner.invoke(cli, ["purge", "--clean-snapshots", "--project", "proj_1", "--force"])
+    assert res.exit_code == 0
+    assert "Deleted 1 snapshot dir(s)" in res.output
+    assert not snap_dir.exists()
+
+    # 9. purge sessions with --project and --force
+    res = runner.invoke(cli, ["purge", "--project", "proj_1", "--force"])
+    assert res.exit_code == 0
+    assert "Deleted 2 sessions" in res.output
+
+    # Verify sessions are gone
+    res = runner.invoke(cli, ["sessions"])
+    assert res.exit_code == 0
+    assert "No sessions found" in res.output
+
+
+def test_like_escaping_special_characters(tmp_path: Path) -> None:
+    db_file = tmp_path / "like_escape.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            parent_id TEXT,
+            directory TEXT NOT NULL,
+            title TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL
+        );
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            time_created INTEGER,
+            time_updated INTEGER,
+            data TEXT
+        );
+        CREATE TABLE part (
+            id TEXT PRIMARY KEY,
+            message_id TEXT,
+            session_id TEXT NOT NULL,
+            time_created INTEGER,
+            time_updated INTEGER,
+            data TEXT
+        );
+    """)
+    now = int(time.time() * 1000)
+    conn.execute("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?)", ("s1", None, "/path/to/my_app", "App", now, now))
+    conn.execute("INSERT INTO session VALUES (?, ?, ?, ?, ?, ?)", ("s2", None, "/path/to/myXapp", "Other", now, now))
+    conn.commit()
+
+    # Exact directory with underscore
+    sessions = db.get_sessions(conn, directory="my_app")
+    assert len(sessions) == 1
+    assert sessions[0].id == "s1"
+    conn.close()
+
+
+def test_purge_blank_project_or_directory_fails_safely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+    db2 = tmp_path / "v2.db"
+    create_v2_db(db2).close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db2))
+
+    res = runner.invoke(cli, ["purge", "--project", "   "])
+    assert res.exit_code != 0
+    assert "At least one purge flag is required" in res.output
+
+    res2 = runner.invoke(cli, ["purge", "--directory", ""])
+    assert res2.exit_code != 0
+    assert "At least one purge flag is required" in res2.output
+
+
+def test_clean_orphans_with_project_flag_does_not_purge_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    storage_base = tmp_path / "opencode_storage"
+    storage_base.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    db2 = storage_base / "opencode.db"
+    create_v2_db(db2).close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db2))
+
+    # Orphan file
+    diff_dir = storage_base / "storage" / "session_diff"
+    diff_dir.mkdir(parents=True, exist_ok=True)
+    (diff_dir / "orphan_123.json").write_text("{}")
+
+    # Clean orphans with project filter passed
+    res = runner.invoke(cli, ["purge", "--clean-orphans", "--project", "proj_1", "--force"])
+    assert res.exit_code == 0
+    assert "Deleted 1 orphan file(s)" in res.output
+
+    # Crucial assertion: sessions must NOT have been purged!
+    conn = sqlite3.connect(str(db2))
+    count = conn.execute("SELECT COUNT(*) FROM session_v2").fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
+def test_snapshot_dual_filter_intersection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage_base = tmp_path / "opencode_storage"
+    monkeypatch.setattr(db, "get_storage_dir", lambda: storage_base)
+
+    snap_dir = storage_base / "snapshot"
+    snap_dir.mkdir(parents=True)
+
+    snap_a = snap_dir / "proj_a"
+    snap_a.mkdir()
+    (snap_a / "pack.dat").write_text("a")
+
+    snap_b = snap_dir / "proj_b"
+    snap_b.mkdir()
+    (snap_b / "pack.dat").write_text("b")
+
+    # Project A and Directory proj_b (mutually exclusive) -> intersection is empty
+    res = db.get_snapshot_projects(project="proj_a", directory="/path/to/proj_b")
+    assert len(res) == 0
+
+    # Project A and Directory proj_a -> matches proj_a
+    res2 = db.get_snapshot_projects(project="proj_a", directory="/path/to/proj_a")
+    assert len(res2) == 1
+    assert res2[0][0] == "proj_a"
+
+
+
+
 

@@ -23,11 +23,15 @@ def status() -> None:
 @cli.command()
 @click.option("--sort", "sort_by", type=click.Choice(["size", "age", "name"]), default="size", help="Sort sessions by")
 @click.option("--limit", "-l", type=int, default=None, help="Limit number of sessions shown")
-def sessions(sort_by: str, limit: int | None) -> None:
+@click.option("--project", "-p", default=None, help="Filter sessions by project name or ID")
+@click.option("--directory", "-d", default=None, help="Filter sessions by directory path or pattern")
+def sessions(sort_by: str, limit: int | None, project: str | None, directory: str | None) -> None:
     """List sessions with sizes, ages, and types."""
     from ocgc.analyzer import run_sessions
 
-    run_sessions(sort_by=sort_by, limit=limit)
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+    run_sessions(sort_by=sort_by, limit=limit, project=clean_proj, directory=clean_dir)
 
 
 @cli.command()
@@ -48,7 +52,18 @@ def analyze() -> None:
 @click.option("--strip-reasoning", is_flag=True, default=False, help="Remove reasoning parts only (keeps sessions)")
 @click.option("--session", "session_ids", multiple=True, help="Delete specific session by ID (repeatable)")
 @click.option("--keep-latest", type=int, default=None, help="Keep N most recent sessions, delete the rest")
-@click.option("--clean-snapshots", is_flag=True, default=False, help="Delete all snapshot directories")
+@click.option(
+    "--project", "-p", default=None,
+    help="Target specific project name or ID for cleanup (cleans all project sessions if no criteria given)",
+)
+@click.option(
+    "--directory", "-d", default=None,
+    help="Target specific workspace directory for cleanup (cleans all directory sessions if no criteria given)",
+)
+@click.option(
+    "--clean-snapshots", is_flag=True, default=False,
+    help="Delete snapshot directories (all or filtered by --project/--directory)",
+)
 @click.option(
     "--clean-orphans", is_flag=True, default=False,
     help="Delete orphan session diff files (no matching session)",
@@ -66,19 +81,24 @@ def purge(
     strip_reasoning: bool,
     session_ids: tuple[str, ...],
     keep_latest: int | None,
+    project: str | None,
+    directory: str | None,
     clean_snapshots: bool,
     clean_orphans: bool,
     clean_tool_output: bool,
     dry_run: bool,
     force: bool,
 ) -> None:
-    """Delete sessions by age, type, size, or ID."""
+    """Delete sessions by age, type, size, project, directory, or ID."""
     if keep_latest is not None and keep_latest < 0:
         raise click.BadParameter("must be a non-negative integer", param_hint="'--keep-latest'")
     from ocgc.purger import run_clean_orphans, run_clean_snapshots, run_clean_tool_output, run_purge
 
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+
     if clean_snapshots:
-        run_clean_snapshots(dry_run=dry_run, force=force)
+        run_clean_snapshots(dry_run=dry_run, force=force, project=clean_proj, directory=clean_dir)
         has_more = (
             clean_orphans or clean_tool_output or older_than or subagents
             or larger_than or session_ids
@@ -116,6 +136,8 @@ def purge(
         keep_latest=keep_latest,
         dry_run=dry_run,
         force=force,
+        project=clean_proj,
+        directory=clean_dir,
     )
 
 

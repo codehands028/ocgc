@@ -3,6 +3,7 @@
 import time
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -309,8 +310,12 @@ def print_analysis(
 
 
 def print_purge_summary(
-    summary: dict[str, int], dry_run: bool = False,
-    diff_files: int = 0, diff_bytes: int = 0,
+    summary: dict[str, int],
+    dry_run: bool = False,
+    diff_files: int = 0,
+    diff_bytes: int = 0,
+    project: str | None = None,
+    directory: str | None = None,
 ) -> None:
     label = "[bold yellow]Dry Run — Nothing will be deleted[/]" if dry_run else "[bold red]Purge Summary[/]"
     border = "yellow" if dry_run else "red"
@@ -324,11 +329,20 @@ def print_purge_summary(
     grid.add_row("Data size", format_bytes(summary["total_bytes"]))
     if diff_files > 0:
         grid.add_row("Session diffs", f"{diff_files} file(s) ({format_bytes(diff_bytes)})")
+    if project:
+        grid.add_row("Project filter", escape(project))
+    if directory:
+        grid.add_row("Directory filter", escape(directory))
 
     console.print(Panel(grid, title=label, border_style=border))
 
 
-def print_reasoning_summary(summary: dict[str, int], dry_run: bool = False) -> None:
+def print_reasoning_summary(
+    summary: dict[str, int],
+    dry_run: bool = False,
+    project: str | None = None,
+    directory: str | None = None,
+) -> None:
     label = "[bold yellow]Dry Run — Reasoning parts to strip[/]" if dry_run else "[bold red]Strip Reasoning[/]"
     border = "yellow" if dry_run else "red"
 
@@ -337,6 +351,10 @@ def print_reasoning_summary(summary: dict[str, int], dry_run: bool = False) -> N
     grid.add_column(style=C_VALUE)
     grid.add_row("Reasoning parts", f"{summary['part_count']:,}")
     grid.add_row("Data size", format_bytes(summary["total_bytes"]))
+    if project:
+        grid.add_row("Project filter", escape(project))
+    if directory:
+        grid.add_row("Directory filter", escape(directory))
 
     console.print(Panel(grid, title=label, border_style=border))
 

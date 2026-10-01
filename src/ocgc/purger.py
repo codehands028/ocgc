@@ -5,6 +5,7 @@ import sqlite3
 import time
 
 import click
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -61,16 +62,32 @@ def run_purge(
     keep_latest: int | None,
     dry_run: bool,
     force: bool,
+    project: str | None = None,
+    directory: str | None = None,
 ) -> None:
     if db.check_opencode_running():
         warn_opencode_running()
         if not dry_run and not force and not click.confirm("opencode is running. Continue anyway?"):
             return
 
-    has_filter = older_than or subagents or larger_than or session_ids or keep_latest is not None
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+
+    has_filter = (
+        older_than
+        or subagents
+        or larger_than
+        or session_ids
+        or keep_latest is not None
+        or clean_proj is not None
+        or clean_dir is not None
+    )
     if not has_filter and not strip_reasoning:
         console.print("[red]Error:[/] At least one purge flag is required.")
-        console.print("Use --older-than, --subagents, --larger-than, --session, --keep-latest, or --strip-reasoning")
+        console.print(
+            "Use --older-than, --subagents, --larger-than, --session, "
+            "--keep-latest, --project, --directory, or --strip-reasoning"
+        )
         raise SystemExit(1)
 
     older_than_ms = parse_duration(older_than) if older_than else None
@@ -125,6 +142,8 @@ def run_purge(
             larger_than_bytes=larger_than_bytes,
             session_ids=list(session_ids) if session_ids else None,
             keep_latest=keep_latest,
+            directory=clean_dir,
+            project=clean_proj,
             now_ms=now_ms,
             version=version,
         )
@@ -138,7 +157,7 @@ def run_purge(
             if summary["part_count"] == 0:
                 console.print("[dim]No reasoning parts found in matching sessions.[/]")
                 return
-            print_reasoning_summary(summary, dry_run=dry_run)
+            print_reasoning_summary(summary, dry_run=dry_run, project=clean_proj, directory=clean_dir)
         else:
             summary = db.get_purge_summary(conn, matched_ids, version=version)
             # Count session diff files that would be cleaned
@@ -151,7 +170,14 @@ def run_purge(
                     if p.exists():
                         diff_files += 1
                         diff_bytes += p.stat().st_size
-            print_purge_summary(summary, dry_run=dry_run, diff_files=diff_files, diff_bytes=diff_bytes)
+            print_purge_summary(
+                summary,
+                dry_run=dry_run,
+                diff_files=diff_files,
+                diff_bytes=diff_bytes,
+                project=clean_proj,
+                directory=clean_dir,
+            )
     finally:
         conn.close()
 
@@ -159,8 +185,20 @@ def run_purge(
         return
 
     if not force:
-        action = "Strip reasoning from" if strip_reasoning else "Delete"
-        if not click.confirm(f"{action} {len(matched_ids)} session(s)?"):
+        has_criteria = (
+            older_than
+            or subagents
+            or larger_than
+            or session_ids
+            or keep_latest is not None
+        )
+        if not strip_reasoning and not has_criteria and (clean_proj or clean_dir):
+            scope = clean_proj or clean_dir
+            prompt = f"Delete ALL {len(matched_ids)} session(s) in {scope}?"
+        else:
+            action = "Strip reasoning from" if strip_reasoning else "Delete"
+            prompt = f"{action} {len(matched_ids)} session(s)?"
+        if not click.confirm(prompt):
             return
 
     try:
@@ -219,10 +257,23 @@ def run_vacuum(force: bool = False) -> None:
     print_vacuum_result(before, after)
 
 
-def run_clean_snapshots(dry_run: bool, force: bool) -> None:
-    projects = db.get_snapshot_projects()
+def run_clean_snapshots(
+    dry_run: bool,
+    force: bool,
+    project: str | None = None,
+    directory: str | None = None,
+) -> None:
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+    projects = db.get_snapshot_projects(project=clean_proj, directory=clean_dir)
     if not projects:
-        console.print("[dim]No snapshot directories found.[/]")
+        filter_desc: list[str] = []
+        if clean_proj:
+            filter_desc.append(f"project '{escape(clean_proj)}'")
+        if clean_dir:
+            filter_desc.append(f"directory '{escape(clean_dir)}'")
+        desc = f" for {' and '.join(filter_desc)}" if filter_desc else ""
+        console.print(f"[dim]No snapshot directories found{desc}.[/]")
         return
 
     total_bytes = sum(size for _, size in projects)
@@ -232,6 +283,10 @@ def run_clean_snapshots(dry_run: bool, force: bool) -> None:
     grid.add_column(style=C_VALUE)
     grid.add_row("Snapshot dirs", str(len(projects)))
     grid.add_row("Total size", format_bytes(total_bytes))
+    if clean_proj:
+        grid.add_row("Project filter", escape(clean_proj))
+    if clean_dir:
+        grid.add_row("Directory filter", escape(clean_dir))
 
     label = "[bold yellow]Dry Run — Snapshots to delete[/]" if dry_run else "[bold red]Clean Snapshots[/]"
     border = "yellow" if dry_run else "red"
@@ -241,12 +296,18 @@ def run_clean_snapshots(dry_run: bool, force: bool) -> None:
         return
 
     if not force:
-        console.print("[yellow]Warning:[/] This deletes git snapshot data for all projects.")
+        target_desc = (
+            f"matching snapshot directories ({len(projects)})"
+            if (clean_proj or clean_dir)
+            else "all snapshot directories"
+        )
+        console.print(f"[yellow]Warning:[/] This deletes git snapshot data for {target_desc}.")
         console.print("[dim]Snapshots will be recreated by opencode as needed.[/]")
-        if not click.confirm("Delete all snapshot directories?"):
+        prompt = f"Delete {len(projects)} snapshot director{'y' if len(projects) == 1 else 'ies'}?"
+        if not click.confirm(prompt):
             return
 
-    result = db.purge_snapshots()
+    result = db.purge_snapshots(names=[name for name, _ in projects])
     freed = format_bytes(result.bytes_freed)
     console.print(f"[green]Deleted {result.files_deleted} snapshot dir(s), freed {freed}.[/]")
 

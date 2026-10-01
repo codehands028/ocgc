@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-18%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -42,8 +42,9 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **SQLite Read-Only URI Handling** | ⚠️ Fragile string formatting | ✅ **Standard `path.resolve().as_uri()`** across all OSes |
 | **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
 | **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
+| **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **18 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **27 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -161,6 +162,13 @@ Displays:
 # List sessions sorted by size (default: largest first)
 ocgc sessions --limit 20
 
+# Filter sessions by project name or ID
+ocgc sessions --project my-app
+
+# Filter sessions by workspace directory path or pattern
+ocgc sessions --directory ~/Projects/legacy-repo
+ocgc sessions --directory "*test*"
+
 # Sort by age or name
 ocgc sessions --sort age --limit 20
 ocgc sessions --sort name
@@ -219,6 +227,26 @@ ocgc purge --keep-latest 50
 ocgc purge --session ses_01955c4d32a078b5a03e1e24748ef534
 ```
 
+#### Targeted Cleanup by Project or Directory (`--project` / `--directory`)
+Clean up orphaned sessions and snapshots left behind by deleted or temporary projects:
+
+```bash
+# Preview sessions matching a specific project
+ocgc purge --project legacy-repo --dry-run
+
+# Preview sessions matching a directory path or pattern
+ocgc purge --directory ~/Projects/legacy-repo --dry-run
+
+# Purge all sessions of a project without prompt
+ocgc purge --project legacy-repo --force
+
+# Purge only Git snapshots for a specific project
+ocgc purge --clean-snapshots --project legacy-repo
+
+# Combine filters: purge sessions in a project older than 14 days
+ocgc purge --project legacy-repo --older-than 14d
+```
+
 #### Filesystem Storage Cleaning
 ```bash
 # Clean orphan session diff files (diff files left behind after DB records were removed)
@@ -226,6 +254,10 @@ ocgc purge --clean-orphans
 
 # Delete all git snapshot repositories (recreated automatically by OpenCode when needed)
 ocgc purge --clean-snapshots
+
+# Delete git snapshots for a specific project or directory
+ocgc purge --clean-snapshots --project my-app
+ocgc purge --clean-snapshots --directory ~/Projects/legacy-repo
 
 # Delete cached tool execution output files (supports filtering with --older-than)
 ocgc purge --clean-tool-output

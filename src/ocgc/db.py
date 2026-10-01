@@ -2,6 +2,7 @@
 
 import contextlib
 import csv
+import fnmatch
 import json
 import os
 import shutil
@@ -50,6 +51,7 @@ class SessionRow:
     time_updated: int  # ms epoch
     size_bytes: int
     message_count: int
+    project_id: str | None = None
 
     @property
     def is_subagent(self) -> bool:
@@ -303,10 +305,120 @@ def get_age_distribution(conn: sqlite3.Connection, now_ms: int, version: int | N
     return result
 
 
+def _escape_like(s: str) -> str:
+    """Escape special characters for SQL LIKE patterns using backslash escape."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _glob_to_like(pattern: str) -> str:
+    """Convert a simple glob pattern (* and ?) to a SQL LIKE pattern with escaping."""
+    res: list[str] = []
+    for ch in pattern:
+        if ch == "*":
+            res.append("%")
+        elif ch == "?":
+            res.append("_")
+        elif ch in ("%", "_", "\\"):
+            res.append(f"\\{ch}")
+        else:
+            res.append(ch)
+    return "".join(res)
+
+
+def _build_filter_clause(
+    directory: str | None = None,
+    project: str | None = None,
+    version: int = 1,
+) -> tuple[list[str], list[str | int]]:
+    """Build SQL condition fragments and params for directory and project filters."""
+    conditions: list[str] = []
+    params: list[str | int] = []
+
+    norm_dir_col = "replace(s.directory, '\\', '/')"
+
+    if directory is not None and directory.strip():
+        expanded = os.path.expanduser(directory).strip()
+        has_wildcard = "*" in expanded or "?" in expanded
+
+        if has_wildcard:
+            norm_raw = expanded.replace("\\", "/")
+            like_pat = _glob_to_like(norm_raw)
+            if norm_raw.startswith(("/", "*")) or (len(norm_raw) >= 2 and norm_raw[1] == ":"):
+                conditions.append(f"{norm_dir_col} LIKE ? ESCAPE '\\'")
+                params.append(like_pat)
+            else:
+                conditions.append(f"({norm_dir_col} LIKE ? ESCAPE '\\' OR {norm_dir_col} LIKE ? ESCAPE '\\')")
+                params.extend([like_pat, f"%/{like_pat}"])
+        else:
+            abs_dir: str | None = None
+            if expanded in (".", "./", ".\\") or expanded.startswith(("./", "../", ".\\", "..\\")):
+                abs_dir = os.path.abspath(expanded).replace("\\", "/").rstrip("/")
+            elif expanded.startswith("/") or (len(expanded) >= 2 and expanded[1] == ":"):
+                abs_dir = expanded.replace("\\", "/").rstrip("/")
+
+            if abs_dir is not None:
+                like_pat = f"{_escape_like(abs_dir)}/%"
+                conditions.append(f"({norm_dir_col} = ? COLLATE NOCASE OR {norm_dir_col} LIKE ? ESCAPE '\\')")
+                params.extend([abs_dir, like_pat])
+            else:
+                bare = expanded.replace("\\", "/").strip("/")
+                like_bare = _escape_like(bare)
+                conditions.append(
+                    f"({norm_dir_col} = ? COLLATE NOCASE "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\' "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\')"
+                )
+                params.extend([bare, f"%/{like_bare}", f"%/{like_bare}/%"])
+
+    if project is not None and project.strip():
+        proj_str = project.strip()
+        has_wildcard = "*" in proj_str or "?" in proj_str
+
+        if version == 2:
+            if has_wildcard:
+                proj_norm = proj_str.replace("\\", "/").strip("/")
+                like_pat = _glob_to_like(proj_norm)
+                conditions.append(
+                    f"(s.project_id LIKE ? ESCAPE '\\' "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\' "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\')"
+                )
+                params.extend([like_pat, like_pat, f"%/{like_pat}"])
+            else:
+                bare = proj_str.replace("\\", "/").strip("/")
+                like_bare = _escape_like(bare)
+                conditions.append(
+                    f"(s.project_id = ? COLLATE NOCASE "
+                    f"OR {norm_dir_col} = ? COLLATE NOCASE "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\' "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\')"
+                )
+                params.extend([proj_str, bare, f"%/{like_bare}", f"%/{like_bare}/%"])
+        else:
+            if has_wildcard:
+                proj_norm = proj_str.replace("\\", "/").strip("/")
+                like_pat = _glob_to_like(proj_norm)
+                conditions.append(f"({norm_dir_col} LIKE ? ESCAPE '\\' OR {norm_dir_col} LIKE ? ESCAPE '\\')")
+                params.extend([like_pat, f"%/{like_pat}"])
+            else:
+                bare = proj_str.replace("\\", "/").strip("/")
+                like_bare = _escape_like(bare)
+                conditions.append(
+                    f"({norm_dir_col} = ? COLLATE NOCASE "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\' "
+                    f"OR {norm_dir_col} LIKE ? ESCAPE '\\')"
+                )
+                params.extend([bare, f"%/{like_bare}", f"%/{like_bare}/%"])
+
+    return conditions, params
+
+
 def get_sessions(
     conn: sqlite3.Connection,
     sort_by: str = "size",
     limit: int | None = None,
+    directory: str | None = None,
+    project: str | None = None,
     version: int | None = None,
 ) -> list[SessionRow]:
     if version is None:
@@ -318,8 +430,11 @@ def get_sessions(
         "name": "s.title ASC",
     }.get(sort_by, "size_bytes DESC")
 
+    filter_conds, filter_params = _build_filter_clause(directory=directory, project=project, version=version)
+    where_clause = "WHERE " + " AND ".join(filter_conds) if filter_conds else ""
+
     limit_clause = "LIMIT ?" if limit else ""
-    params: list[int] = []
+    params: list[str | int] = list(filter_params)
     if limit:
         params.append(limit)
 
@@ -333,13 +448,15 @@ def get_sessions(
                 s.time_created,
                 s.time_updated,
                 COALESCE(sm.size_bytes, 0) AS size_bytes,
-                COALESCE(sm.msg_count, 0) AS message_count
+                COALESCE(sm.msg_count, 0) AS message_count,
+                s.project_id
             FROM session_v2 s
             LEFT JOIN (
                 SELECT session_id, SUM(LENGTH(data)) AS size_bytes, COUNT(*) AS msg_count
                 FROM session_message
                 GROUP BY session_id
             ) sm ON sm.session_id = s.id
+            {where_clause}
             ORDER BY {order_clause}
             {limit_clause}
         """
@@ -365,6 +482,7 @@ def get_sessions(
                 FROM message
                 GROUP BY session_id
             ) mc ON mc.session_id = s.id
+            {where_clause}
             ORDER BY {order_clause}
             {limit_clause}
         """
@@ -381,6 +499,7 @@ def get_sessions(
             time_updated=r["time_updated"],
             size_bytes=r["size_bytes"],
             message_count=r["message_count"],
+            project_id=r["project_id"] if version == 2 else None,
         )
         for r in rows
     ]
@@ -486,6 +605,8 @@ def get_session_ids_for_purge(
     larger_than_bytes: int | None = None,
     session_ids: list[str] | None = None,
     keep_latest: int | None = None,
+    directory: str | None = None,
+    project: str | None = None,
     now_ms: int | None = None,
     version: int | None = None,
 ) -> list[str]:
@@ -509,6 +630,13 @@ def get_session_ids_for_purge(
         cutoff = now_ms - older_than_ms
         conditions.append("s.time_created < ?")
         params.append(cutoff)
+
+    if directory is not None or project is not None:
+        dir_proj_conds, dir_proj_params = _build_filter_clause(
+            directory=directory, project=project, version=version
+        )
+        conditions.extend(dir_proj_conds)
+        params.extend(dir_proj_params)
 
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
@@ -984,15 +1112,86 @@ def purge_orphan_diffs(orphans: list[OrphanDiff]) -> PurgeFilesResult:
     return result
 
 
-def get_snapshot_projects() -> list[tuple[str, int]]:
-    """Return (dirname, size_bytes) for each snapshot project directory."""
+def get_snapshot_projects(
+    project: str | None = None,
+    directory: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> list[tuple[str, int]]:
+    """Return (dirname, size_bytes) for each snapshot project directory, optionally filtered."""
     snap_dir = get_storage_dir() / "snapshot"
     if not snap_dir.is_dir():
         return []
+
+    proj_clean = project.strip() if project and project.strip() else None
+    dir_clean = directory.strip() if directory and directory.strip() else None
+    has_filter = proj_clean is not None or dir_clean is not None
+
+    matched_db_proj_ids: set[str] = set()
+
+    if has_filter:
+        close_conn = False
+        db_conn = conn
+        if db_conn is None:
+            with contextlib.suppress(FileNotFoundError, sqlite3.Error):
+                db_conn = connect(readonly=True)
+                close_conn = True
+
+        if db_conn is not None:
+            try:
+                version = detect_version(db_conn)
+                if version == 2:
+                    conds, params = _build_filter_clause(directory=dir_clean, project=proj_clean, version=2)
+                    where = "WHERE " + " AND ".join(conds) if conds else ""
+                    rows = db_conn.execute(
+                        f"SELECT DISTINCT s.project_id FROM session_v2 s {where}", params
+                    ).fetchall()
+                    for r in rows:
+                        if r[0]:
+                            matched_db_proj_ids.add(str(r[0]).lower())
+            except (sqlite3.Error, RuntimeError):
+                if close_conn:
+                    with contextlib.suppress(Exception):
+                        db_conn.close()
+                raise
+            finally:
+                if close_conn:
+                    with contextlib.suppress(Exception):
+                        db_conn.close()
+
+    def _matches_project(name: str) -> bool:
+        if not proj_clean:
+            return True
+        if name in matched_db_proj_ids:
+            return True
+        if "*" in proj_clean or "?" in proj_clean:
+            esc_pattern = proj_clean.lower().replace("[", "[[]")
+            return fnmatch.fnmatch(name, esc_pattern)
+        return name == proj_clean.lower()
+
+    def _matches_directory(name: str) -> bool:
+        if not dir_clean:
+            return True
+        if name in matched_db_proj_ids:
+            return True
+        clean_dir = os.path.expanduser(dir_clean).replace("\\", "/").rstrip("/")
+        if "*" in clean_dir or "?" in clean_dir:
+            pattern = clean_dir.rsplit("/", 1)[-1].lower()
+            if not pattern.strip("*?"):
+                return False
+            esc_pattern = pattern.replace("[", "[[]")
+            return fnmatch.fnmatch(name, esc_pattern)
+        dir_basename = clean_dir.rsplit("/", 1)[-1].lower() if clean_dir else ""
+        return bool(dir_basename and name == dir_basename)
+
     projects = []
     for d in sorted(snap_dir.iterdir()):
-        if d.is_dir():
-            projects.append((d.name, _dir_size(d)))
+        if not d.is_dir():
+            continue
+        if has_filter:
+            name_lower = d.name.lower()
+            if not (_matches_project(name_lower) and _matches_directory(name_lower)):
+                continue
+        projects.append((d.name, _dir_size(d)))
     return projects
 
 
@@ -1028,25 +1227,30 @@ def _rmtree_safe(path: Path) -> None:
         shutil.rmtree(path, onerror=_on_error_cb)
 
 
-def purge_snapshots(project: str | None = None) -> PurgeFilesResult:
-    """Delete snapshot directories. If project given, delete only that one."""
+def purge_snapshots(
+    project: str | None = None,
+    directory: str | None = None,
+    conn: sqlite3.Connection | None = None,
+    names: list[str] | None = None,
+) -> PurgeFilesResult:
+    """Delete snapshot directories. If names given, delete those; else filter by project/directory."""
     snap_dir = get_storage_dir() / "snapshot"
     result = PurgeFilesResult()
     if not snap_dir.is_dir():
         return result
 
-    if project:
-        target = snap_dir / project
-        if target.is_dir():
-            result.bytes_freed = _dir_size(target)
-            _rmtree_safe(target)
-            result.files_deleted = 1
+    if names is not None:
+        target_names = names
     else:
-        for d in snap_dir.iterdir():
-            if d.is_dir():
-                result.bytes_freed += _dir_size(d)
-                _rmtree_safe(d)
-                result.files_deleted += 1
+        snap_projects = get_snapshot_projects(project=project, directory=directory, conn=conn)
+        target_names = [name for name, _ in snap_projects]
+
+    for name in target_names:
+        target = snap_dir / name
+        if target.is_dir():
+            result.bytes_freed += _dir_size(target)
+            _rmtree_safe(target)
+            result.files_deleted += 1
 
     return result
 

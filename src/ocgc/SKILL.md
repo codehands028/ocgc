@@ -19,6 +19,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 - When inspecting which sessions or subagents consume the most storage
 - When stripping bulky reasoning tokens (thinking parts) while keeping chat history intact
 - When removing stale sessions older than a specific timeframe (e.g. 14 days, 30 days)
+- When cleaning up sessions or snapshots scoped to a specific project or workspace directory
 - When cleaning up orphan session diffs or git snapshot directories
 
 ## When NOT to Use
@@ -33,7 +34,9 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Check Dashboard** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc status` |
 | **Deep Analysis** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc analyze` |
 | **List Top 10 Sessions** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --sort size -l 10` |
+| **Filter by Project/Dir** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --project <name>` |
 | **Preview Purge (Dry-run)** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --dry-run` |
+| **Targeted Project Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --project <name> --dry-run` |
 | **Strip Reasoning Only** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --strip-reasoning` |
 | **Reclaim SQLite Disk Space**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc vacuum` |
 
@@ -70,6 +73,10 @@ ocgc purge --older-than 30d --dry-run
 # Preview deleting sessions larger than 50MB
 ocgc purge --larger-than 50M --dry-run
 
+# Preview deleting sessions for a specific project or directory
+ocgc purge --project legacy-repo --dry-run
+ocgc purge --directory ~/Projects/legacy-repo --dry-run
+
 # Preview cleaning orphan diffs and snapshots
 ocgc purge --clean-orphans --clean-snapshots --dry-run
 ```
@@ -87,6 +94,10 @@ ocgc purge --strip-reasoning
 
 # Or clean only subagents (spawned child sessions)
 ocgc purge --subagents
+
+# Or clean sessions / snapshots for a specific project
+ocgc purge --project legacy-repo
+ocgc purge --clean-snapshots --project legacy-repo
 ```
 
 ### 4. Shrink SQLite File (VACUUM)

@@ -39,7 +39,12 @@ def run_status() -> None:
         conn.close()
 
 
-def run_sessions(sort_by: str = "size", limit: int | None = None) -> None:
+def run_sessions(
+    sort_by: str = "size",
+    limit: int | None = None,
+    project: str | None = None,
+    directory: str | None = None,
+) -> None:
     from ocgc.display import print_sessions, warn_if_opencode_running
 
     warn_if_opencode_running()
@@ -51,11 +56,21 @@ def run_sessions(sort_by: str = "size", limit: int | None = None) -> None:
         raise SystemExit(1) from None
     try:
         version = _detect_version_or_exit(conn)
-        sessions = db.get_sessions(conn, sort_by=sort_by, limit=limit, version=version)
+        sessions = db.get_sessions(
+            conn,
+            sort_by=sort_by,
+            limit=limit,
+            directory=directory,
+            project=project,
+            version=version,
+        )
         if not sessions:
             from ocgc.display import console
 
-            console.print("[dim]No sessions found.[/]")
+            if project or directory:
+                console.print("[dim]No sessions found matching the given criteria.[/]")
+            else:
+                console.print("[dim]No sessions found.[/]")
             return
         print_sessions(sessions)
     finally:

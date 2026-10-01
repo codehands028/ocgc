@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-18%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -42,8 +42,9 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **只读 SQLite 连接处理** | ⚠️ 简易字符串拼接（在 Windows 盘符下极易出错） | ✅ **跨平台标准的 `path.resolve().as_uri()`** |
 | **磁盘孤立 Diff 文件检测** | ⚠️ 仅针对 v1 | ✅ **自适应 v1/v2 数据库识别磁盘孤立文件** |
 | **临时工具输出缓存清理** | ❌ 无 | ✅ **原生支持（`--clean-tool-output`，带时间过滤与并发防护）** |
+| **按项目/目录定向范围过滤** | ❌ 无 | ✅ **原生支持（`--project`, `--directory` 覆盖会话与快照）** |
 | **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **18 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **27 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
 
 ---
 
@@ -162,6 +163,13 @@ ocgc status
 # 查看体积最大的 20 个会话（默认按大小降序）
 ocgc sessions --limit 20
 
+# 按项目名称或 ID 过滤查看会话
+ocgc sessions --project my-app
+
+# 按工作目录路径或通配符过滤会话
+ocgc sessions --directory ~/Projects/legacy-repo
+ocgc sessions --directory "*test*"
+
 # 按创建时间或名称排序
 ocgc sessions --sort age --limit 20
 ocgc sessions --sort name
@@ -220,6 +228,21 @@ ocgc purge --keep-latest 50
 ocgc purge --session ses_01955c4d32a078b5a03e1e24748ef534
 ```
 
+#### 按项目/工作区目录范围定向清理 (`--project` / `--directory`)
+精准清理已废弃或特定项目的旧会话与磁盘快照：
+
+```bash
+# 预览/清理指定项目的所有历史会话
+ocgc purge --directory ~/Projects/legacy-repo --dry-run
+ocgc purge --project legacy-repo --force
+
+# 仅清除特定项目的 Git 快照
+ocgc purge --clean-snapshots --project legacy-repo
+
+# 组合过滤：仅清理特定项目中超过 14 天的会话
+ocgc purge --project legacy-repo --older-than 14d
+```
+
 #### 磁盘冗余文件清理
 ```bash
 # 清理数据库已不存在、但磁盘仍遗留的孤立 session diff 文件
@@ -227,6 +250,10 @@ ocgc purge --clean-orphans
 
 # 清理所有项目的 Git snapshot 快照（OpenCode 后续在需要时会自动重新创建）
 ocgc purge --clean-snapshots
+
+# 仅清理指定项目或工作目录的 Git 快照
+ocgc purge --clean-snapshots --project my-app
+ocgc purge --clean-snapshots --directory ~/Projects/legacy-repo
 
 # 清理工具执行产生的临时标准输出缓存文件（支持通过 --older-than 过滤过期文件）
 ocgc purge --clean-tool-output
