@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-37%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-66%20passed-brightgreen.svg)](tests/test_exporter.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -44,8 +44,9 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
 | **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
 | **Lightweight WAL Checkpoint** | ❌ None | ✅ **Millisecond reset (`ocgc checkpoint` with TRUNCATE)** |
+| **Session Markdown Export & Archive** | ❌ None | ✅ **Full GFM Export (`ocgc export`, `purge --archive-to`)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **37 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **66 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -248,6 +249,17 @@ ocgc purge --clean-snapshots --project legacy-repo
 ocgc purge --project legacy-repo --older-than 14d
 ```
 
+#### Safe Archiving Before Purging (`--archive-to`)
+Archive conversations to readable Markdown files before deleting, ensuring zero anxiety about losing important designs or decisions:
+
+```bash
+# Archive matching sessions to Markdown before deleting
+ocgc purge --older-than 30d --archive-to ~/.opencode_archives/
+
+# Preview what would be deleted and where it would be archived
+ocgc purge --older-than 30d --archive-to ~/.opencode_archives/ --dry-run
+```
+
 #### Filesystem Storage Cleaning
 ```bash
 # Clean orphan session diff files (diff files left behind after DB records were removed)
@@ -273,7 +285,30 @@ ocgc purge --clean-orphans --clean-snapshots --clean-tool-output --subagents --o
 
 ---
 
-### 3. Fast WAL Merging & Truncation (`ocgc checkpoint`)
+### 3. Session Markdown Export (`ocgc export`)
+
+Export conversations into clean, human-readable GitHub-flavored Markdown documents complete with frontmatter metadata, user prompts, collapsible tool call execution logs, and thinking/reasoning blocks:
+
+```bash
+# Export a specific session to a directory
+ocgc export --session ses_01955c4d32a078b5a03e1e24748ef534 -o ./exports/
+
+# Export a specific session directly to a designated file
+ocgc export --session ses_01955c4d32a078b5a03e1e24748ef534 -o my_session.md
+
+# Batch export all sessions for a specific project
+ocgc export --project my-project -o ./project_docs/
+
+# Batch export all sessions older than 30 days
+ocgc export --older-than 30d -o ./archive/
+
+# Export all sessions without reasoning process (compact view)
+ocgc export --all --no-reasoning -o ./exports/
+```
+
+---
+
+### 4. Fast WAL Merging & Truncation (`ocgc checkpoint`)
 
 SQLite in Write-Ahead Logging (WAL) mode appends write transactions into `opencode.db-wal`, which can grow to hundreds of megabytes and may not shrink automatically. While `vacuum` fully rebuilds the database (which can take minutes and requires 2× free disk space), `checkpoint` synchronously flushes all WAL pages into the main database and resets the WAL file to 0 bytes in milliseconds without heavy I/O or space doubling:
 
@@ -287,7 +322,7 @@ ocgc checkpoint --mode truncate
 
 ---
 
-### 4. Reclaim Physical Disk Space (`ocgc vacuum`)
+### 5. Reclaim Physical Disk Space (`ocgc vacuum`)
 
 SQLite does not automatically shrink its `.db` file when rows are deleted; it retains empty pages for future writes. Run `vacuum` to release free space back to the operating system:
 

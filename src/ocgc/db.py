@@ -83,6 +83,39 @@ class SessionRow:
 
 
 @dataclass
+class SessionContentPart:
+    type: str  # "text", "reasoning", "tool", "file", "other"
+    text: str | None = None
+    tool_name: str | None = None
+    tool_input: dict | str | None = None
+    tool_output: str | None = None
+    tool_status: str | None = None
+
+
+@dataclass
+class SessionMessageRecord:
+    id: str
+    role: str  # "user", "assistant", "system"
+    seq: int
+    time_created: int  # ms epoch
+    content_parts: list[SessionContentPart]
+
+
+@dataclass
+class SessionTranscript:
+    id: str
+    parent_id: str | None
+    title: str | None
+    directory: str
+    project_id: str | None
+    time_created: int  # ms epoch
+    time_updated: int  # ms epoch
+    model: str | None
+    tokens: dict[str, int] | None
+    messages: list[SessionMessageRecord]
+
+
+@dataclass
 class PartTypeStats:
     type_name: str
     count: int
@@ -527,6 +560,353 @@ def get_sessions(
         )
         for r in rows
     ]
+
+
+def get_session_transcript(
+    conn: sqlite3.Connection,
+    session_id: str,
+    version: int | None = None,
+) -> SessionTranscript | None:
+    """Retrieve full session transcript (messages, content parts, tool calls) for markdown export."""
+    if version is None:
+        version = detect_version(conn)
+
+    if version == 2:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(session_v2)")}
+        select_cols = [
+            "id",
+            "parent_id",
+            "title",
+            "directory",
+            "project_id" if "project_id" in cols else "NULL AS project_id",
+            "time_created",
+            "time_updated",
+            "model" if "model" in cols else "NULL AS model",
+            "tokens_input" if "tokens_input" in cols else "0 AS tokens_input",
+            "tokens_output" if "tokens_output" in cols else "0 AS tokens_output",
+            "tokens_reasoning" if "tokens_reasoning" in cols else "0 AS tokens_reasoning",
+        ]
+        query = f"SELECT {', '.join(select_cols)} FROM session_v2 WHERE id = ?"
+        row = conn.execute(query, (session_id,)).fetchone()
+        if not row:
+            return None
+
+        model_name: str | None = None
+        raw_model = row["model"]
+        if raw_model:
+            if isinstance(raw_model, str) and raw_model.strip().startswith("{"):
+                with contextlib.suppress(Exception):
+                    m_obj = json.loads(raw_model)
+                    if isinstance(m_obj, dict):
+                        model_name = m_obj.get("id") or m_obj.get("name")
+            if not model_name:
+                model_name = str(raw_model)
+
+        tokens = {
+            "input": int(row["tokens_input"] or 0),
+            "output": int(row["tokens_output"] or 0),
+            "reasoning": int(row["tokens_reasoning"] or 0),
+        }
+
+        msg_rows = conn.execute(
+            """
+            SELECT id, type, seq, time_created, data
+            FROM session_message
+            WHERE session_id = ?
+            ORDER BY seq ASC, time_created ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+        messages: list[SessionMessageRecord] = []
+        for mr in msg_rows:
+            m_id = mr["id"]
+            m_type = mr["type"] or "user"
+            m_seq = mr["seq"] if mr["seq"] is not None else 0
+            m_time = mr["time_created"] if mr["time_created"] is not None else 0
+            raw_data = mr["data"]
+
+            if m_type == "reasoning":
+                parsed_reasoning = None
+                with contextlib.suppress(Exception):
+                    parsed_reasoning = json.loads(raw_data or "") if raw_data else None
+                reason_text = (
+                    parsed_reasoning.get("text", "")
+                    if isinstance(parsed_reasoning, dict)
+                    else (raw_data or "")
+                )
+                messages.append(
+                    SessionMessageRecord(
+                        id=m_id,
+                        role="assistant",
+                        seq=m_seq,
+                        time_created=m_time,
+                        content_parts=[SessionContentPart(type="reasoning", text=str(reason_text))],
+                    )
+                )
+                continue
+
+            parts: list[SessionContentPart] = []
+            parsed_data = None
+            if raw_data:
+                with contextlib.suppress(Exception):
+                    parsed_data = json.loads(raw_data)
+
+            if not isinstance(parsed_data, dict):
+                parts.append(SessionContentPart(type="text", text=str(raw_data or "")))
+                messages.append(
+                    SessionMessageRecord(
+                        id=m_id, role=m_type, seq=m_seq, time_created=m_time, content_parts=parts
+                    )
+                )
+                continue
+
+            if not model_name and "model" in parsed_data:
+                m_field = parsed_data["model"]
+                if isinstance(m_field, dict):
+                    model_name = m_field.get("id") or m_field.get("name")
+                elif isinstance(m_field, str):
+                    model_name = m_field
+
+            if m_type == "user":
+                if "text" in parsed_data and parsed_data["text"]:
+                    parts.append(SessionContentPart(type="text", text=str(parsed_data["text"])))
+                if "files" in parsed_data and isinstance(parsed_data["files"], list):
+                    for f in parsed_data["files"]:
+                        if isinstance(f, dict):
+                            f_desc = f.get("path") or f.get("name") or json.dumps(f, ensure_ascii=False)
+                            parts.append(SessionContentPart(type="file", text=str(f_desc)))
+                        elif isinstance(f, str):
+                            parts.append(SessionContentPart(type="file", text=f))
+                user_content = parsed_data.get("content")
+                if isinstance(user_content, str) and user_content.strip():
+                    parts.append(SessionContentPart(type="text", text=user_content))
+                elif isinstance(user_content, list):
+                    for c in user_content:
+                        if isinstance(c, dict):
+                            c_type = c.get("type", "text")
+                            c_text = c.get("text")
+                            if c_text is not None:
+                                parts.append(SessionContentPart(type=c_type, text=str(c_text)))
+                            else:
+                                parts.append(
+                                    SessionContentPart(type=c_type, text=json.dumps(c, ensure_ascii=False))
+                                )
+                        elif isinstance(c, str):
+                            parts.append(SessionContentPart(type="text", text=c))
+                if not parts:
+                    parts.append(SessionContentPart(type="text", text=str(raw_data)))
+            else:
+                content = parsed_data.get("content")
+                if isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict):
+                            parts.append(SessionContentPart(type="text", text=str(item)))
+                            continue
+                        p_type = item.get("type", "text")
+                        if p_type == "reasoning":
+                            parts.append(SessionContentPart(type="reasoning", text=str(item.get("text", ""))))
+                        elif p_type == "tool":
+                            t_name = item.get("name") or "tool"
+                            t_state = item.get("state") if isinstance(item.get("state"), dict) else {}
+                            t_status = t_state.get("status") or "completed"
+                            t_input = t_state.get("input")
+                            t_output_val: str | None = None
+                            if "content" in t_state:
+                                st_content = t_state["content"]
+                                if isinstance(st_content, list):
+                                    out_pieces = []
+                                    for elem in st_content:
+                                        if isinstance(elem, dict) and "text" in elem:
+                                            out_pieces.append(str(elem["text"]))
+                                        else:
+                                            out_pieces.append(json.dumps(elem, ensure_ascii=False))
+                                    t_output_val = "\n".join(out_pieces)
+                                elif isinstance(st_content, str):
+                                    t_output_val = st_content
+                                else:
+                                    t_output_val = json.dumps(st_content, ensure_ascii=False)
+                            elif "output" in t_state:
+                                t_output_val = str(t_state["output"])
+                            elif "error" in t_state:
+                                t_output_val = f"Error: {t_state['error']}"
+
+                            parts.append(
+                                SessionContentPart(
+                                    type="tool",
+                                    tool_name=t_name,
+                                    tool_input=t_input,
+                                    tool_output=t_output_val,
+                                    tool_status=t_status,
+                                )
+                            )
+                        else:
+                            t_text = item.get("text")
+                            if t_text is not None:
+                                parts.append(SessionContentPart(type=p_type, text=str(t_text)))
+                            else:
+                                parts.append(
+                                    SessionContentPart(
+                                        type=p_type, text=json.dumps(item, ensure_ascii=False)
+                                    )
+                                )
+                elif isinstance(content, str):
+                    parts.append(SessionContentPart(type="text", text=content))
+                elif "text" in parsed_data:
+                    parts.append(SessionContentPart(type="text", text=str(parsed_data["text"])))
+                else:
+                    parts.append(SessionContentPart(type="text", text=str(raw_data)))
+
+            messages.append(
+                SessionMessageRecord(
+                    id=m_id,
+                    role=m_type,
+                    seq=m_seq,
+                    time_created=m_time,
+                    content_parts=parts,
+                )
+            )
+
+        return SessionTranscript(
+            id=row["id"],
+            parent_id=row["parent_id"],
+            title=row["title"],
+            directory=row["directory"],
+            project_id=row["project_id"],
+            time_created=row["time_created"],
+            time_updated=row["time_updated"],
+            model=model_name,
+            tokens=tokens,
+            messages=messages,
+        )
+
+    else:  # version == 1
+        row = conn.execute(
+            """
+            SELECT id, parent_id, directory, title, time_created, time_updated
+            FROM session WHERE id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        msg_rows = conn.execute(
+            """
+            SELECT id, session_id, time_created, time_updated, data
+            FROM message
+            WHERE session_id = ?
+            ORDER BY time_created ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+        part_rows = conn.execute(
+            """
+            SELECT id, message_id, session_id, time_created, time_updated, data
+            FROM part
+            WHERE session_id = ?
+            ORDER BY time_created ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+        parts_by_msg: dict[str, list[SessionContentPart]] = {}
+        for pr in part_rows:
+            mid = pr["message_id"]
+            raw_p_data = pr["data"]
+            parsed_p = None
+            if raw_p_data:
+                with contextlib.suppress(Exception):
+                    parsed_p = json.loads(raw_p_data)
+            if not isinstance(parsed_p, dict):
+                p_obj = SessionContentPart(type="text", text=str(raw_p_data or ""))
+            else:
+                ptype = parsed_p.get("type", "text")
+                if ptype == "tool":
+                    st = parsed_p.get("state") if isinstance(parsed_p.get("state"), dict) else {}
+                    t_input = st.get("input") or parsed_p.get("input") or parsed_p.get("args")
+                    raw_out = (
+                        st.get("content")
+                        or st.get("output")
+                        or st.get("error")
+                        or parsed_p.get("output")
+                        or parsed_p.get("result")
+                    )
+                    t_output_val: str | None = None
+                    if raw_out is not None:
+                        if isinstance(raw_out, list):
+                            out_pieces = []
+                            for elem in raw_out:
+                                if isinstance(elem, dict) and "text" in elem:
+                                    out_pieces.append(str(elem["text"]))
+                                else:
+                                    out_pieces.append(json.dumps(elem, ensure_ascii=False))
+                            t_output_val = "\n".join(out_pieces)
+                        elif isinstance(raw_out, str):
+                            t_output_val = raw_out
+                        elif isinstance(raw_out, dict):
+                            t_output_val = json.dumps(raw_out, ensure_ascii=False)
+                        else:
+                            t_output_val = str(raw_out)
+
+                    t_status = st.get("status") or parsed_p.get("status") or "completed"
+
+                    p_obj = SessionContentPart(
+                        type="tool",
+                        tool_name=parsed_p.get("call") or parsed_p.get("name") or "tool",
+                        tool_input=t_input,
+                        tool_output=t_output_val,
+                        tool_status=t_status,
+                    )
+                elif ptype == "reasoning":
+                    p_obj = SessionContentPart(type="reasoning", text=str(parsed_p.get("text", "")))
+                else:
+                    raw_text = parsed_p.get("text") or parsed_p.get("content")
+                    if raw_text is None:
+                        raw_text = json.dumps(parsed_p, ensure_ascii=False)
+                    p_obj = SessionContentPart(
+                        type=ptype, text=str(raw_text)
+                    )
+            parts_by_msg.setdefault(mid, []).append(p_obj)
+
+        messages = []
+        for seq_idx, mr in enumerate(msg_rows):
+            mid = mr["id"]
+            m_parts = parts_by_msg.get(mid, [])
+            m_data: object = {}
+            with contextlib.suppress(Exception):
+                m_data = json.loads(mr["data"]) if mr["data"] else {}
+
+            role = m_data.get("role") if isinstance(m_data, dict) else None
+            if not role:
+                if any(p.type in ("reasoning", "tool") for p in m_parts):
+                    role = "assistant"
+                else:
+                    role = "unknown"
+
+            messages.append(
+                SessionMessageRecord(
+                    id=mid,
+                    role=role,
+                    seq=seq_idx,
+                    time_created=mr["time_created"],
+                    content_parts=m_parts,
+                )
+            )
+
+        return SessionTranscript(
+            id=row["id"],
+            parent_id=row["parent_id"],
+            title=row["title"],
+            directory=row["directory"],
+            project_id=None,
+            time_created=row["time_created"],
+            time_updated=row["time_updated"],
+            model=None,
+            tokens=None,
+            messages=messages,
+        )
 
 
 def get_part_type_stats_by_session_type(

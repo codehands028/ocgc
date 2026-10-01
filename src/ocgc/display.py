@@ -1,6 +1,7 @@
 """Rich formatting for terminal output."""
 
 import time
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.markup import escape
@@ -9,6 +10,11 @@ from rich.table import Table
 from rich.text import Text
 
 from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, SessionRow
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ocgc.exporter import ExportResult
 
 console = Console()
 
@@ -316,6 +322,7 @@ def print_purge_summary(
     diff_bytes: int = 0,
     project: str | None = None,
     directory: str | None = None,
+    archive_to: str | None = None,
 ) -> None:
     label = "[bold yellow]Dry Run — Nothing will be deleted[/]" if dry_run else "[bold red]Purge Summary[/]"
     border = "yellow" if dry_run else "red"
@@ -329,6 +336,8 @@ def print_purge_summary(
     grid.add_row("Data size", format_bytes(summary["total_bytes"]))
     if diff_files > 0:
         grid.add_row("Session diffs", f"{diff_files} file(s) ({format_bytes(diff_bytes)})")
+    if archive_to:
+        grid.add_row("Archive to", escape(archive_to))
     if project:
         grid.add_row("Project filter", escape(project))
     if directory:
@@ -337,11 +346,45 @@ def print_purge_summary(
     console.print(Panel(grid, title=label, border_style=border))
 
 
+def print_export_result(result: "ExportResult", output_path: "Path") -> None:
+    from pathlib import Path
+
+    exported = result.sessions_exported
+    written = result.bytes_written
+    errors = result.errors
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+    grid.add_row("Sessions exported", str(exported))
+    grid.add_row("Total data written", format_bytes(written))
+    grid.add_row("Destination", escape(str(Path(str(output_path)).resolve())))
+    if errors:
+        grid.add_row("Errors", f"[{C_DANGER}]{len(errors)} failed[/]")
+
+    console.print(Panel(grid, title="[bold cyan]Export Complete[/]", border_style="cyan"))
+
+    if errors:
+        err_table = Table(
+            title="Export Failures",
+            show_header=True,
+            header_style="bold red",
+            border_style="dim",
+            padding=(0, 1),
+        )
+        err_table.add_column("Session ID", style=C_VALUE)
+        err_table.add_column("Error", style=C_DANGER)
+        for sid, err in errors:
+            err_table.add_row(escape(str(sid)), escape(str(err)))
+        console.print(err_table)
+
+
 def print_reasoning_summary(
     summary: dict[str, int],
     dry_run: bool = False,
     project: str | None = None,
     directory: str | None = None,
+    archive_to: str | None = None,
 ) -> None:
     label = "[bold yellow]Dry Run — Reasoning parts to strip[/]" if dry_run else "[bold red]Strip Reasoning[/]"
     border = "yellow" if dry_run else "red"
@@ -351,6 +394,8 @@ def print_reasoning_summary(
     grid.add_column(style=C_VALUE)
     grid.add_row("Reasoning parts", f"{summary['part_count']:,}")
     grid.add_row("Data size", format_bytes(summary["total_bytes"]))
+    if archive_to:
+        grid.add_row("Archive to", escape(archive_to))
     if project:
         grid.add_row("Project filter", escape(project))
     if directory:

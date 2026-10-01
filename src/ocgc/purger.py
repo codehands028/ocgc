@@ -1,8 +1,10 @@
 """Purge and vacuum logic."""
 
+import os
 import re
 import sqlite3
 import time
+from pathlib import Path
 
 import click
 from rich.markup import escape
@@ -65,9 +67,19 @@ def run_purge(
     force: bool,
     project: str | None = None,
     directory: str | None = None,
+    archive_to: str | None = None,
 ) -> None:
-    if db.check_opencode_running():
+    clean_archive = os.path.expanduser(archive_to.strip()) if archive_to and archive_to.strip() else None
+
+    opencode_running = db.check_opencode_running()
+    if opencode_running:
         warn_opencode_running()
+        if clean_archive and not dry_run and not force:
+            console.print(
+                "[red]Error:[/] OpenCode is currently running. Purging with --archive-to while OpenCode is active "
+                "creates a risk of concurrent message loss. Please close OpenCode or pass --force to proceed."
+            )
+            raise SystemExit(1)
         if not dry_run and not force and not click.confirm("opencode is running. Continue anyway?"):
             return
 
@@ -83,12 +95,18 @@ def run_purge(
         or clean_proj is not None
         or clean_dir is not None
     )
-    if not has_filter and not strip_reasoning:
-        console.print("[red]Error:[/] At least one purge flag is required.")
-        console.print(
-            "Use --older-than, --subagents, --larger-than, --session, "
-            "--keep-latest, --project, --directory, or --strip-reasoning"
-        )
+    if not has_filter and (not strip_reasoning or clean_archive):
+        if clean_archive:
+            console.print("[red]Error:[/] At least one purge selection flag is required with --archive-to.")
+            console.print(
+                "Use --older-than, --session, --larger-than, --keep-latest, or --subagents to select sessions to archive and purge."
+            )
+        else:
+            console.print("[red]Error:[/] At least one purge flag is required.")
+            console.print(
+                "Use --older-than, --subagents, --larger-than, --session, "
+                "--keep-latest, --project, --directory, or --strip-reasoning"
+            )
         raise SystemExit(1)
 
     older_than_ms = parse_duration(older_than) if older_than else None
@@ -158,7 +176,13 @@ def run_purge(
             if summary["part_count"] == 0:
                 console.print("[dim]No reasoning parts found in matching sessions.[/]")
                 return
-            print_reasoning_summary(summary, dry_run=dry_run, project=clean_proj, directory=clean_dir)
+            print_reasoning_summary(
+                summary,
+                dry_run=dry_run,
+                project=clean_proj,
+                directory=clean_dir,
+                archive_to=clean_archive,
+            )
         else:
             summary = db.get_purge_summary(conn, matched_ids, version=version)
             # Count session diff files that would be cleaned
@@ -178,6 +202,7 @@ def run_purge(
                 diff_bytes=diff_bytes,
                 project=clean_proj,
                 directory=clean_dir,
+                archive_to=clean_archive,
             )
     finally:
         conn.close()
@@ -193,11 +218,13 @@ def run_purge(
             or session_ids
             or keep_latest is not None
         )
-        if not strip_reasoning and not has_criteria and (clean_proj or clean_dir):
+        action = "Strip reasoning from" if strip_reasoning else "Delete"
+        if clean_archive:
+            prompt = f"Archive to {clean_archive} and {action.lower()} {len(matched_ids)} session(s)?"
+        elif not strip_reasoning and not has_criteria and (clean_proj or clean_dir):
             scope = clean_proj or clean_dir
             prompt = f"Delete ALL {len(matched_ids)} session(s) in {scope}?"
         else:
-            action = "Strip reasoning from" if strip_reasoning else "Delete"
             prompt = f"{action} {len(matched_ids)} session(s)?"
         if not click.confirm(prompt):
             return
@@ -208,6 +235,53 @@ def run_purge(
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from None
     try:
+        if clean_archive:
+            archive_dir = Path(clean_archive)
+            from ocgc.exporter import export_sessions
+
+            with console.status(f"[bold cyan]Archiving {len(matched_ids)} session(s) to Markdown...[/]"):
+                try:
+                    archive_res = export_sessions(
+                        session_ids=matched_ids,
+                        output_dir=archive_dir,
+                        include_reasoning=True,
+                        overwrite=False,
+                        conn=conn,
+                    )
+                except Exception as e:
+                    console.print(f"[red]Archiving failed:[/] {e}")
+                    console.print("[red]Aborting operation to protect against data loss. No sessions were modified.[/]")
+                    raise SystemExit(1) from None
+
+            if archive_res.errors:
+                console.print(f"[red]Error during archiving:[/] Failed to archive {len(archive_res.errors)} session(s):")
+                for sid, err in archive_res.errors:
+                    console.print(f"  [red]• {escape(str(sid))}: {escape(str(err))}[/]")
+                console.print("[red]Aborting operation to protect against data loss. No sessions were modified.[/]")
+                raise SystemExit(1)
+
+            from ocgc.exporter import archive_session_diffs
+
+            diff_copied, diff_failed = archive_session_diffs(
+                session_ids=matched_ids,
+                archive_dir=archive_dir,
+            )
+
+            if diff_failed:
+                console.print(
+                    f"[red]Error during archiving:[/] Failed to back up {len(diff_failed)} session diff file(s):"
+                )
+                for item in diff_failed:
+                    console.print(f"  [red]• {escape(str(item))}[/]")
+                console.print("[red]Aborting operation to protect against data loss. No sessions were modified.[/]")
+                raise SystemExit(1)
+
+            msg = f"[green]Archived {archive_res.sessions_exported} session(s) ({format_bytes(archive_res.bytes_written)})"
+            if diff_copied > 0:
+                msg += f" and {diff_copied} session diff file(s)"
+            msg += f" to {escape(str(archive_dir))}.[/]"
+            console.print(msg)
+
         if strip_reasoning:
             count = db.strip_reasoning(conn, matched_ids, version=version)
             console.print(f"[green]Deleted {count:,} reasoning parts from {len(matched_ids)} sessions.[/]")

@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-37%20passed-brightgreen.svg)](tests/test_v1_and_v2.py)
+[![Tests](https://img.shields.io/badge/tests-66%20passed-brightgreen.svg)](tests/test_exporter.py)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -44,8 +44,9 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **临时工具输出缓存清理** | ❌ 无 | ✅ **原生支持（`--clean-tool-output`，带时间过滤与并发防护）** |
 | **按项目/目录定向范围过滤** | ❌ 无 | ✅ **原生支持（`--project`, `--directory` 覆盖会话与快照）** |
 | **轻量级 WAL 归并与重置** | ❌ 无 | ✅ **毫秒级重置（`ocgc checkpoint` 支持 TRUNCATE 模式）** |
+| **会话 Markdown 导出与安全归档** | ❌ 无 | ✅ **完整 GFM 格式导出（`ocgc export` 与 `purge --archive-to`）** |
 | **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **37 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **66 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
 
 ---
 
@@ -244,6 +245,17 @@ ocgc purge --clean-snapshots --project legacy-repo
 ocgc purge --project legacy-repo --older-than 14d
 ```
 
+#### 清理前安全归档 (`--archive-to`)
+在物理删除前先将会话导出为人类可读的 Markdown 文件备份，彻底消除误删顾虑：
+
+```bash
+# 清理 30 天以前的旧会话，并在删除前自动归档至指定目录
+ocgc purge --older-than 30d --archive-to ~/.opencode_archives/
+
+# 预览会清理哪些会话以及预归档路径（演练模式，不发生写入与删除）
+ocgc purge --older-than 30d --archive-to ~/.opencode_archives/ --dry-run
+```
+
 #### 磁盘冗余文件清理
 ```bash
 # 清理数据库已不存在、但磁盘仍遗留的孤立 session diff 文件
@@ -269,7 +281,30 @@ ocgc purge --clean-orphans --clean-snapshots --clean-tool-output --subagents --o
 
 ---
 
-### 3. 轻量级 WAL 归并与重置 (`ocgc checkpoint`)
+### 3. 会话 Markdown 导出与归档 (`ocgc export`)
+
+将历史对话导出为排版规范、结构清晰的 GitHub-flavored Markdown 文档，完整保留会话元数据（标题、ID、目录、创建/更新时间、模型与Token消耗）、用户提问与附件、折叠的工具调用日志及思考过程：
+
+```bash
+# 导出特定会话至指定目录
+ocgc export --session ses_01955c4d32a078b5a03e1e24748ef534 -o ./exports/
+
+# 导出特定会话为指定文件
+ocgc export --session ses_01955c4d32a078b5a03e1e24748ef534 -o my_session.md
+
+# 批量导出特定项目的所有会话
+ocgc export --project my-project -o ./project_docs/
+
+# 批量导出 30 天以前的会话
+ocgc export --older-than 30d -o ./archive/
+
+# 导出全部会话（精简视图，排除思考过程）
+ocgc export --all --no-reasoning -o ./exports/
+```
+
+---
+
+### 4. 轻量级 WAL 归并与重置 (`ocgc checkpoint`)
 
 SQLite 在预写日志（WAL）模式下会将所有写入操作追加到 `opencode.db-wal` 中。长久运行或高频对话后，WAL 日志可能膨胀到数百兆且不释放。相比耗时较长且需要 2 倍空闲磁盘空间的 `vacuum`，`checkpoint` 可以在毫秒级内将 WAL 页面安全同步写回主库文件并将 WAL 日志截断重置为 0 字节：
 
@@ -283,7 +318,7 @@ ocgc checkpoint --mode truncate
 
 ---
 
-### 4. 释放物理磁盘空间 (`ocgc vacuum`)
+### 5. 释放物理磁盘空间 (`ocgc vacuum`)
 
 SQLite 在删除数据行后，默认会将空闲页保留在数据库内部以便复用，并不会立即将磁盘空间归还给操作系统。执行 `vacuum` 命令可以完成物理磁盘整理与收缩：
 

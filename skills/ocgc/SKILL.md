@@ -39,6 +39,8 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Targeted Project Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --project <name> --dry-run` |
 | **Strip Reasoning Only** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --strip-reasoning` |
 | **Flush & Reset WAL Log** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc checkpoint` |
+| **Export to Markdown** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc export --project <name> -o ./exports` |
+| **Archive Prior to Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --archive-to ~/.archives` |
 | **Reclaim SQLite Disk Space**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc vacuum` |
 
 > *Note: If `ocgc` is installed globally via `uv tool install` or `pipx`, replace the `uvx ...` prefix with `ocgc`.*
@@ -133,6 +135,7 @@ Filters can be combined:
 - `--subagents`: Only target subagent sessions (`parent_id IS NOT NULL`).
 - `--strip-reasoning`: Remove bulky reasoning parts without deleting the session records.
 - `--session <ID>`: Target specific session IDs (repeatable).
+- `--archive-to <path>`: Archive matching sessions as Markdown files in `<path>` before deleting them.
 - `--clean-snapshots`: Remove git snapshot cache directories.
 - `--clean-orphans`: Remove orphaned session diff files not referenced in the DB.
 - `--clean-tool-output`: Remove cached tool execution output files.

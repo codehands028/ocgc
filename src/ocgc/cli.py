@@ -61,6 +61,10 @@ def analyze() -> None:
     help="Target specific workspace directory for cleanup (cleans all directory sessions if no criteria given)",
 )
 @click.option(
+    "--archive-to", default=None,
+    help="Archive sessions to Markdown files in specified directory before deleting",
+)
+@click.option(
     "--clean-snapshots", is_flag=True, default=False,
     help="Delete snapshot directories (all or filtered by --project/--directory)",
 )
@@ -83,6 +87,7 @@ def purge(
     keep_latest: int | None,
     project: str | None,
     directory: str | None,
+    archive_to: str | None,
     clean_snapshots: bool,
     clean_orphans: bool,
     clean_tool_output: bool,
@@ -96,6 +101,20 @@ def purge(
 
     clean_proj = project.strip() if project and project.strip() else None
     clean_dir = directory.strip() if directory and directory.strip() else None
+    clean_archive = archive_to.strip() if archive_to and archive_to.strip() else None
+
+    has_session_filter = bool(
+        older_than or subagents or larger_than or session_ids
+        or keep_latest is not None
+        or ((clean_proj or clean_dir) and not (clean_snapshots or clean_orphans or clean_tool_output))
+    )
+    if clean_archive and not has_session_filter:
+        from ocgc.display import console
+        console.print("[red]Error:[/] At least one purge selection flag is required with --archive-to.")
+        console.print(
+            "Use --older-than, --session, --larger-than, --keep-latest, or --subagents to select sessions to archive and purge."
+        )
+        raise SystemExit(1)
 
     if clean_snapshots:
         run_clean_snapshots(dry_run=dry_run, force=force, project=clean_proj, directory=clean_dir)
@@ -138,7 +157,147 @@ def purge(
         force=force,
         project=clean_proj,
         directory=clean_dir,
+        archive_to=archive_to,
     )
+
+
+@cli.command("export")
+@click.option("--session", "-s", "session_ids", multiple=True, help="Export specific session by ID (repeatable)")
+@click.option("--project", "-p", default=None, help="Filter sessions by project name or ID")
+@click.option("--directory", "-d", default=None, help="Filter sessions by directory path or pattern")
+@click.option("--older-than", default=None, help="Filter sessions older than duration (e.g., 7d, 30d)")
+@click.option("--all", "all_sessions", is_flag=True, default=False, help="Export all sessions in database")
+@click.option("--output", "-o", default="exports", show_default=True, help="Output directory or file path")
+@click.option(
+    "--include-reasoning/--no-reasoning",
+    default=True,
+    show_default=True,
+    help="Include reasoning/thought process in export",
+)
+@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing files instead of incrementing suffix")
+def export_cmd(
+    session_ids: tuple[str, ...],
+    project: str | None,
+    directory: str | None,
+    older_than: str | None,
+    all_sessions: bool,
+    output: str,
+    include_reasoning: bool,
+    overwrite: bool,
+) -> None:
+    """Export OpenCode sessions as readable GitHub-flavored Markdown files."""
+    import os
+    import time
+    from pathlib import Path
+
+    from ocgc import db
+    from ocgc.display import console, print_export_result, warn_if_opencode_running
+    from ocgc.exporter import ExportResult, export_session_to_file, export_sessions
+    from ocgc.purger import parse_duration
+
+    warn_if_opencode_running()
+
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+    older_than_ms = parse_duration(older_than) if older_than else None
+    now_ms = int(time.time() * 1000)
+    deduped_sids = sorted({s.strip() for s in session_ids if s.strip()})
+
+    has_filter = bool(
+        deduped_sids or clean_proj or clean_dir or older_than_ms is not None or all_sessions
+    )
+    if not has_filter:
+        console.print("[red]Error:[/] Please specify sessions to export.")
+        console.print("Use --session <id>, --project <name>, --directory <path>, --older-than <dur>, or --all")
+        raise SystemExit(1)
+
+    try:
+        conn = db.connect(readonly=True)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
+
+    try:
+        try:
+            version = db.detect_version(conn)
+        except RuntimeError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from None
+
+        target_ids: list[str] = []
+        if deduped_sids and not (clean_proj or clean_dir or older_than_ms is not None or all_sessions):
+            target_ids = deduped_sids
+        else:
+            target_ids = db.get_session_ids_for_purge(
+                conn,
+                older_than_ms=older_than_ms,
+                session_ids=deduped_sids if deduped_sids else None,
+                directory=clean_dir,
+                project=clean_proj,
+                now_ms=now_ms,
+                version=version,
+            )
+
+        if not target_ids:
+            console.print("[dim]No sessions found matching export criteria.[/]")
+            return
+
+        out_path = Path(os.path.expanduser(output.strip()))
+        is_single_file_target = not out_path.is_dir() and bool(out_path.suffix)
+
+        if is_single_file_target and len(target_ids) != 1:
+            console.print(
+                f"[red]Error:[/] Cannot export {len(target_ids)} sessions into a single file "
+                f"('{out_path.name}'). Use a directory path instead."
+            )
+            raise SystemExit(1)
+
+        # If single session and out_path looks like a specific file
+        if len(target_ids) == 1 and is_single_file_target:
+            try:
+                transcript = db.get_session_transcript(conn, target_ids[0], version=version)
+            except Exception as e:
+                console.print(f"[red]Error reading session '{target_ids[0]}':[/] {e}")
+                raise SystemExit(1) from None
+
+            if not transcript:
+                console.print(f"[red]Error:[/] Session '{target_ids[0]}' not found.")
+                raise SystemExit(1)
+            try:
+                saved = export_session_to_file(
+                    transcript,
+                    output_path=out_path,
+                    include_reasoning=include_reasoning,
+                    overwrite=overwrite,
+                )
+                res = ExportResult(
+                    sessions_exported=1,
+                    bytes_written=saved.stat().st_size,
+                )
+                print_export_result(res, saved)
+                return
+            except (OSError, ValueError) as e:
+                console.print(f"[red]Error exporting session '{target_ids[0]}':[/] {e}")
+                raise SystemExit(1) from None
+
+        try:
+            with console.status(f"[bold cyan]Exporting {len(target_ids)} session(s) to {out_path}...[/]"):
+                result = export_sessions(
+                    session_ids=target_ids,
+                    output_dir=out_path,
+                    include_reasoning=include_reasoning,
+                    overwrite=overwrite,
+                    conn=conn,
+                )
+        except (OSError, ValueError) as e:
+            console.print(f"[red]Error during batch export:[/] {e}")
+            raise SystemExit(1) from None
+
+        print_export_result(result, out_path)
+        if result.errors:
+            raise SystemExit(1)
+    finally:
+        conn.close()
 
 
 @cli.command()
