@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, SessionRow
+from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, ProjectRow, SessionRow
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -228,6 +228,38 @@ def print_sessions(sessions: list[SessionRow]) -> None:
             format_age(s.time_created),
             type_label,
             str(s.message_count),
+        )
+
+    console.print(table)
+
+
+def print_projects(projects: list[ProjectRow]) -> None:
+    table = Table(
+        title="Project Storage Dashboard",
+        show_header=True,
+        header_style="bold",
+        border_style="dim",
+        padding=(0, 1),
+    )
+    table.add_column(
+        "Project / Workspace", min_width=12, no_wrap=True, overflow="ellipsis", ratio=3
+    )
+    table.add_column("Sessions", justify="right", no_wrap=True, ratio=1)
+    table.add_column("Data Size", justify="right", style="bold", no_wrap=True, ratio=1)
+    table.add_column("Snapshots", justify="right", no_wrap=True, ratio=1)
+    table.add_column("Total", justify="right", style="bold", no_wrap=True, ratio=1)
+    table.add_column("Last Active", justify="right", no_wrap=True, ratio=1)
+
+    for p in projects:
+        directory = escape(p.directory or p.key or "(unknown)")
+        last_active_str = format_age(p.last_active) if p.last_active > 0 else "-"
+        table.add_row(
+            directory,
+            f"{p.session_count:,}",
+            format_bytes(p.data_size),
+            format_bytes(p.snapshot_size),
+            format_bytes(p.total_size),
+            last_active_str,
         )
 
     console.print(table)

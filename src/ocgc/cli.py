@@ -44,6 +44,36 @@ def analyze() -> None:
 
 @cli.command()
 @click.option(
+    "--sort",
+    "sort_by",
+    type=click.Choice(["size", "sessions", "name", "age"]),
+    default="size",
+    show_default=True,
+    help="Sort projects by: size (total footprint), sessions (count), name, or age (oldest last-active first)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Limit number of projects shown",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output the project dashboard as structured JSON",
+)
+def projects(sort_by: str, limit: int | None, json_output: bool) -> None:
+    """Show per-project/workspace storage usage and rankings."""
+    from ocgc.analyzer import run_projects
+
+    run_projects(sort_by=sort_by, limit=limit, json_output=json_output)
+
+
+@cli.command()
+@click.option(
     "--older-than", default=None,
     help="Filter sessions or tool output older than duration (e.g., 15m, 1h, 7d, 2w, 3mo)",
 )

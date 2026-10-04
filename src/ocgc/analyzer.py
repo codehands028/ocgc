@@ -1,6 +1,8 @@
 """Analysis logic."""
 
+import json
 import sqlite3
+import sys
 import time
 
 import click
@@ -114,5 +116,51 @@ def run_analyze() -> None:
             orphan_count=len(orphans),
             orphan_bytes=sum(o.size for o in orphans),
         )
+    finally:
+        conn.close()
+
+
+def run_projects(
+    sort_by: str = "size",
+    limit: int | None = None,
+    json_output: bool = False,
+) -> None:
+    from ocgc.display import console, print_projects, warn_if_opencode_running
+
+    if not json_output:
+        warn_if_opencode_running()
+
+    try:
+        conn = db.connect(readonly=True)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
+    try:
+        version = _detect_version_or_exit(conn)
+        projects = db.get_project_stats(conn, sort_by=sort_by, limit=limit, version=version)
+
+        if json_output:
+            payload = {
+                "version": version,
+                "projects": [
+                    {
+                        "directory": p.directory,
+                        "project_id": p.project_id,
+                        "session_count": p.session_count,
+                        "data_size": p.data_size,
+                        "snapshot_size": p.snapshot_size,
+                        "total_size": p.total_size,
+                        "last_active": p.last_active,
+                    }
+                    for p in projects
+                ],
+            }
+            sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+            return
+
+        if not projects:
+            console.print("[dim]No projects found.[/]")
+            return
+        print_projects(projects)
     finally:
         conn.close()

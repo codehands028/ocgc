@@ -17,6 +17,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 - When disk space is low and OpenCode data directories consume gigabytes
 - When OpenCode becomes sluggish during startup or session loading
 - When inspecting which sessions or subagents consume the most storage
+- When ranking storage consumption by Git project or workspace directory
 - When stripping bulky reasoning tokens (thinking parts) while keeping chat history intact
 - When removing stale sessions older than a specific timeframe (e.g. 14 days, 30 days)
 - When cleaning up sessions or snapshots scoped to a specific project or workspace directory
@@ -33,6 +34,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | :--- | :--- |
 | **Check Dashboard** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc status` |
 | **Deep Analysis** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc analyze` |
+| **Project Dashboard** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc projects` |
 | **List Top 10 Sessions** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --sort size -l 10` |
 | **Filter by Project/Dir** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --project <name>` |
 | **Preview Purge (Dry-run)** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --dry-run` |

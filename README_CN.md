@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-66%20passed-brightgreen.svg)](tests/test_exporter.py)
+[![Tests](https://img.shields.io/badge/tests-91%20passed-brightgreen.svg)](tests/test_projects.py)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -43,11 +43,12 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **磁盘孤立 Diff 文件检测** | ⚠️ 仅针对 v1 | ✅ **自适应 v1/v2 数据库识别磁盘孤立文件** |
 | **临时工具输出缓存清理** | ❌ 无 | ✅ **原生支持（`--clean-tool-output`，带时间过滤与并发防护）** |
 | **按项目/目录定向范围过滤** | ❌ 无 | ✅ **原生支持（`--project`, `--directory` 覆盖会话与快照）** |
+| **项目级存储大盘** | ❌ 无 | ✅ **原生支持（`ocgc projects` 按项目聚合会话、数据与快照占用排行）** |
 | **轻量级 WAL 归并与重置** | ❌ 无 | ✅ **毫秒级重置（`ocgc checkpoint` 支持 TRUNCATE 模式）** |
 | **会话 Markdown 导出与安全归档** | ❌ 无 | ✅ **完整 GFM 格式导出（`ocgc export` 与 `purge --archive-to`）** |
 | **数据库体检与健康诊断** | ❌ 无 | ✅ **`ocgc doctor`（物理完整性、WAL 膨胀、悬空行、权限探测）** |
 | **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **79 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **91 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
 
 ---
 
@@ -189,6 +190,25 @@ ocgc analyze
 - **预估增长速度**：每个活跃使用日的平均新增存储（MB/active day）
 - **主会话 vs 子代理消耗对比**：详细对比主会话与后台子代理各占用了多少消息和字节
 - **孤立文件扫描**：精确找出磁盘中存在但数据库中对应记录已被删除的无效 diff 冗余文件
+
+#### 项目级存储大盘
+```bash
+# 按占用空间降序展示各项目/工作区
+ocgc projects
+
+# 按会话数量排序
+ocgc projects --sort sessions
+
+# 仅展示占用最大的 10 个项目，并输出结构化 JSON
+ocgc projects --limit 10
+ocgc projects --json
+```
+以项目/工作区为单位聚合，一眼看清各个 Git 仓库的空间占用排行：
+- **Sessions**：该项目下的会话总数（含主会话与子代理）
+- **Data Size**：数据库中消息 / 部件数据的实际占用
+- **Snapshots**：归属该项目的 Git 快照目录占用
+- **Total**：数据 + 快照的合计磁盘占用（`--sort size` 即按此排序）
+- **Last Active**：该项目最后一次活跃时间
 
 ---
 

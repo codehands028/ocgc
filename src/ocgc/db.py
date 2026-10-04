@@ -91,6 +91,21 @@ class SessionRow:
 
 
 @dataclass
+class ProjectRow:
+    key: str  # grouping key: project_id (v2) or workspace directory
+    directory: str  # workspace / worktree directory (display)
+    project_id: str | None
+    session_count: int
+    data_size: int  # message / part bytes
+    snapshot_size: int  # git snapshot bytes attributed to this project
+    last_active: int  # ms epoch
+
+    @property
+    def total_size(self) -> int:
+        return self.data_size + self.snapshot_size
+
+
+@dataclass
 class SessionContentPart:
     type: str  # "text", "reasoning", "tool", "file", "other"
     text: str | None = None
@@ -568,6 +583,146 @@ def get_sessions(
         )
         for r in rows
     ]
+
+
+def _normalize_directory(path: str | None) -> str:
+    """Normalize a directory path to forward slashes without a trailing slash."""
+    if not path:
+        return ""
+    return path.replace("\\", "/").rstrip("/")
+
+
+def _directory_basename(path: str | None) -> str:
+    """Return the last path segment of a directory (cross-platform)."""
+    normalized = _normalize_directory(path)
+    if not normalized:
+        return ""
+    return normalized.rsplit("/", 1)[-1]
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """Return the set of column names for a table, or an empty set if missing."""
+    try:
+        return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.Error:
+        return set()
+
+
+def get_project_stats(
+    conn: sqlite3.Connection,
+    sort_by: str = "size",
+    limit: int | None = None,
+    version: int | None = None,
+) -> list[ProjectRow]:
+    """Aggregate storage footprint per project / workspace.
+
+    Sessions are grouped by ``project_id`` on v2 when present (falling back to
+    the workspace ``directory``), and by ``directory`` on v1. Message/part
+    bytes and git snapshot directory sizes are summed per group.
+    """
+    if version is None:
+        version = detect_version(conn)
+
+    if version == 2:
+        query = """
+            SELECT
+                COALESCE(NULLIF(s.project_id, ''), s.directory) AS grp,
+                MAX(NULLIF(s.project_id, '')) AS project_id,
+                MIN(s.directory) AS directory,
+                COUNT(*) AS session_count,
+                COALESCE(SUM(sm.size_bytes), 0) AS data_size,
+                MAX(s.time_updated) AS last_active
+            FROM session_v2 s
+            LEFT JOIN (
+                SELECT session_id, SUM(LENGTH(data)) AS size_bytes
+                FROM session_message
+                GROUP BY session_id
+            ) sm ON sm.session_id = s.id
+            GROUP BY grp
+        """
+    else:
+        query = """
+            SELECT
+                s.directory AS grp,
+                NULL AS project_id,
+                MIN(s.directory) AS directory,
+                COUNT(*) AS session_count,
+                COALESCE(SUM(ps.size_bytes), 0) AS data_size,
+                MAX(s.time_updated) AS last_active
+            FROM session s
+            LEFT JOIN (
+                SELECT session_id, SUM(LENGTH(data)) AS size_bytes
+                FROM part
+                GROUP BY session_id
+            ) ps ON ps.session_id = s.id
+            GROUP BY grp
+        """
+
+    rows = [
+        ProjectRow(
+            key=r["grp"] or "",
+            directory=r["directory"] or "",
+            project_id=r["project_id"],
+            session_count=r["session_count"] or 0,
+            data_size=r["data_size"] or 0,
+            snapshot_size=0,
+            last_active=r["last_active"] or 0,
+        )
+        for r in conn.execute(query)
+    ]
+
+    # Prefer the canonical git worktree from the `project` table when available.
+    if version == 2 and rows and {"id", "worktree"}.issubset(_table_columns(conn, "project")):
+        worktrees = {
+            str(r[0]): str(r[1])
+            for r in conn.execute(
+                "SELECT id, worktree FROM project "
+                "WHERE id IS NOT NULL AND worktree IS NOT NULL AND TRIM(worktree) != ''"
+            )
+            if r[0]
+        }
+        for row in rows:
+            if row.project_id and row.project_id in worktrees:
+                row.directory = worktrees[row.project_id]
+
+    # Snapshot directories are keyed by project id (v2) or directory basename (v1).
+    snapshots = get_snapshot_projects()
+    if snapshots:
+        by_project_id: dict[str, list[int]] = {}
+        by_basename: dict[str, list[int]] = {}
+        for idx, row in enumerate(rows):
+            if row.project_id:
+                by_project_id.setdefault(row.project_id.lower(), []).append(idx)
+            base = _directory_basename(row.directory).lower()
+            if base:
+                by_basename.setdefault(base, []).append(idx)
+
+        for name, size in snapshots:
+            name_lower = name.lower()
+            # Prefer the authoritative project id, then fall back to the
+            # directory basename. A snapshot name is not globally unique in
+            # either namespace (case-insensitive file systems, repeated
+            # workspace basenames), so only attribute when the match is unique;
+            # otherwise two projects could double-count -- or steal -- the same
+            # snapshot and skew the storage ranking.
+            candidates = by_project_id.get(name_lower)
+            if candidates is None:
+                candidates = by_basename.get(name_lower, [])
+            if len(candidates) == 1:
+                rows[candidates[0]].snapshot_size += size
+
+    if sort_by == "sessions":
+        rows.sort(key=lambda r: (-r.session_count, -r.total_size, r.directory.lower()))
+    elif sort_by == "name":
+        rows.sort(key=lambda r: ((r.directory or r.key).lower(), r.key.lower()))
+    elif sort_by == "age":
+        rows.sort(key=lambda r: (r.last_active, r.directory.lower()))
+    else:  # "size"
+        rows.sort(key=lambda r: (-r.total_size, -r.session_count, r.directory.lower()))
+
+    if limit is not None:
+        rows = rows[: max(0, limit)]
+    return rows
 
 
 def get_session_transcript(

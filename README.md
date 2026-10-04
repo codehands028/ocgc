@@ -8,7 +8,7 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-66%20passed-brightgreen.svg)](tests/test_exporter.py)
+[![Tests](https://img.shields.io/badge/tests-91%20passed-brightgreen.svg)](tests/test_projects.py)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -43,11 +43,12 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
 | **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
 | **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
+| **Project-Level Storage Dashboard** | ❌ None | ✅ **Native (`ocgc projects` aggregation of sessions, data & snapshots)** |
 | **Lightweight WAL Checkpoint** | ❌ None | ✅ **Millisecond reset (`ocgc checkpoint` with TRUNCATE)** |
 | **Session Markdown Export & Archive** | ❌ None | ✅ **Full GFM Export (`ocgc export`, `purge --archive-to`)** |
 | **Database Health Check & Diagnostics** | ❌ None | ✅ **`ocgc doctor` (Integrity, WAL bloat, dangling rows, permissions)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **79 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **91 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -188,6 +189,25 @@ Outputs:
 - **Estimated Growth Rate**: average storage increase (MB) per active day of usage
 - **Root vs Subagent Comparison**: breakdown of messages and bytes consumed by parent sessions vs delegated subagents
 - **Orphan Diff Scanner**: identifies session diff files on disk that have no matching session in the database
+
+#### Project-Level Storage Dashboard
+```bash
+# Rank projects / workspaces by occupied disk space (default)
+ocgc projects
+
+# Rank by session count instead
+ocgc projects --sort sessions
+
+# Show only the top 10 projects, or emit structured JSON
+ocgc projects --limit 10
+ocgc projects --json
+```
+Aggregates storage per project / workspace so you can see which Git repos dominate your footprint at a glance:
+- **Sessions**: total sessions in the project (root + subagent)
+- **Data Size**: bytes stored in the database for that project's messages / parts
+- **Snapshots**: Git snapshot directory bytes attributed to the project
+- **Total**: combined data + snapshot footprint (`--sort size` ranks by this)
+- **Last Active**: most recent session activity timestamp
 
 ---
 
