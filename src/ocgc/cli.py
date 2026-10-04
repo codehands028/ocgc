@@ -112,7 +112,8 @@ def purge(
         from ocgc.display import console
         console.print("[red]Error:[/] At least one purge selection flag is required with --archive-to.")
         console.print(
-            "Use --older-than, --session, --larger-than, --keep-latest, or --subagents to select sessions to archive and purge."
+            "Use --older-than, --session, --larger-than, --keep-latest, or --subagents "
+            "to select sessions to archive and purge."
         )
         raise SystemExit(1)
 
@@ -174,7 +175,12 @@ def purge(
     show_default=True,
     help="Include reasoning/thought process in export",
 )
-@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing files instead of incrementing suffix")
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing files instead of incrementing suffix",
+)
 def export_cmd(
     session_ids: tuple[str, ...],
     project: str | None,
@@ -324,6 +330,30 @@ def vacuum(force: bool) -> None:
     from ocgc.purger import run_vacuum
 
     run_vacuum(force=force)
+
+
+@cli.command("doctor")
+@click.option(
+    "--quick",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Run quick SQLite integrity check (PRAGMA quick_check) instead of full check",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output health diagnostics in structured JSON format",
+)
+def doctor_cmd(quick: bool, json_output: bool) -> None:
+    """Check OpenCode database integrity, WAL bloat, dangling rows, and storage health."""
+    from ocgc.doctor import run_doctor
+
+    report = run_doctor(quick=quick, json_output=json_output)
+    if report.has_critical_error:
+        raise SystemExit(1)
 
 
 @cli.command("install-skill")

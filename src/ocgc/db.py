@@ -13,6 +13,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
 
@@ -26,6 +27,13 @@ _V2_SESSION_REFERENCE_TABLES: tuple[tuple[str, str], ...] = (
     ("session_share", "session_id"),
     ("event", "aggregate_id"),
     ("event_sequence", "aggregate_id"),
+)
+
+_V1_SESSION_REFERENCE_TABLES: tuple[tuple[str, str], ...] = (
+    ("message", "session_id"),
+    ("part", "session_id"),
+    ("todo", "session_id"),
+    ("session_share", "session_id"),
 )
 
 
@@ -87,7 +95,7 @@ class SessionContentPart:
     type: str  # "text", "reasoning", "tool", "file", "other"
     text: str | None = None
     tool_name: str | None = None
-    tool_input: dict | str | None = None
+    tool_input: dict[str, Any] | str | None = None
     tool_output: str | None = None
     tool_status: str | None = None
 
@@ -708,7 +716,8 @@ def get_session_transcript(
                             parts.append(SessionContentPart(type="reasoning", text=str(item.get("text", ""))))
                         elif p_type == "tool":
                             t_name = item.get("name") or "tool"
-                            t_state = item.get("state") if isinstance(item.get("state"), dict) else {}
+                            st_item = item.get("state")
+                            t_state: dict[str, Any] = st_item if isinstance(st_item, dict) else {}
                             t_status = t_state.get("status") or "completed"
                             t_input = t_state.get("input")
                             t_output_val: str | None = None
@@ -822,18 +831,20 @@ def get_session_transcript(
             if not isinstance(parsed_p, dict):
                 p_obj = SessionContentPart(type="text", text=str(raw_p_data or ""))
             else:
-                ptype = parsed_p.get("type", "text")
+                parsed_p_dict: dict[str, Any] = parsed_p
+                ptype = parsed_p_dict.get("type", "text")
                 if ptype == "tool":
-                    st = parsed_p.get("state") if isinstance(parsed_p.get("state"), dict) else {}
-                    t_input = st.get("input") or parsed_p.get("input") or parsed_p.get("args")
+                    st_val = parsed_p_dict.get("state")
+                    st: dict[str, Any] = st_val if isinstance(st_val, dict) else {}
+                    t_input = st.get("input") or parsed_p_dict.get("input") or parsed_p_dict.get("args")
                     raw_out = (
                         st.get("content")
                         or st.get("output")
                         or st.get("error")
-                        or parsed_p.get("output")
-                        or parsed_p.get("result")
+                        or parsed_p_dict.get("output")
+                        or parsed_p_dict.get("result")
                     )
-                    t_output_val: str | None = None
+                    t_out_str: str | None = None
                     if raw_out is not None:
                         if isinstance(raw_out, list):
                             out_pieces = []
@@ -842,29 +853,29 @@ def get_session_transcript(
                                     out_pieces.append(str(elem["text"]))
                                 else:
                                     out_pieces.append(json.dumps(elem, ensure_ascii=False))
-                            t_output_val = "\n".join(out_pieces)
+                            t_out_str = "\n".join(out_pieces)
                         elif isinstance(raw_out, str):
-                            t_output_val = raw_out
+                            t_out_str = raw_out
                         elif isinstance(raw_out, dict):
-                            t_output_val = json.dumps(raw_out, ensure_ascii=False)
+                            t_out_str = json.dumps(raw_out, ensure_ascii=False)
                         else:
-                            t_output_val = str(raw_out)
+                            t_out_str = str(raw_out)
 
-                    t_status = st.get("status") or parsed_p.get("status") or "completed"
+                    t_status = st.get("status") or parsed_p_dict.get("status") or "completed"
 
                     p_obj = SessionContentPart(
                         type="tool",
-                        tool_name=parsed_p.get("call") or parsed_p.get("name") or "tool",
+                        tool_name=parsed_p_dict.get("call") or parsed_p_dict.get("name") or "tool",
                         tool_input=t_input,
-                        tool_output=t_output_val,
+                        tool_output=t_out_str,
                         tool_status=t_status,
                     )
                 elif ptype == "reasoning":
-                    p_obj = SessionContentPart(type="reasoning", text=str(parsed_p.get("text", "")))
+                    p_obj = SessionContentPart(type="reasoning", text=str(parsed_p_dict.get("text", "")))
                 else:
-                    raw_text = parsed_p.get("text") or parsed_p.get("content")
+                    raw_text = parsed_p_dict.get("text") or parsed_p_dict.get("content")
                     if raw_text is None:
-                        raw_text = json.dumps(parsed_p, ensure_ascii=False)
+                        raw_text = json.dumps(parsed_p_dict, ensure_ascii=False)
                     p_obj = SessionContentPart(
                         type=ptype, text=str(raw_text)
                     )
@@ -880,10 +891,7 @@ def get_session_transcript(
 
             role = m_data.get("role") if isinstance(m_data, dict) else None
             if not role:
-                if any(p.type in ("reasoning", "tool") for p in m_parts):
-                    role = "assistant"
-                else:
-                    role = "unknown"
+                role = "assistant" if any(p.type in ("reasoning", "tool") for p in m_parts) else "unknown"
 
             messages.append(
                 SessionMessageRecord(
@@ -1484,9 +1492,14 @@ def purge_session_diffs(session_ids: list[str]) -> PurgeFilesResult:
     return result
 
 
-def get_orphan_session_diffs(conn: sqlite3.Connection, version: int | None = None) -> list[OrphanDiff]:
+def get_orphan_session_diffs(
+    conn: sqlite3.Connection,
+    version: int | None = None,
+    storage_dir: Path | None = None,
+) -> list[OrphanDiff]:
     """Find session_diff files that have no matching session in DB."""
-    diff_dir = get_storage_dir() / "storage" / "session_diff"
+    base = storage_dir if storage_dir is not None else get_storage_dir()
+    diff_dir = base / "storage" / "session_diff"
     if not diff_dir.is_dir():
         return []
 
@@ -1832,3 +1845,118 @@ def vacuum_db(path: Path | None = None) -> tuple[int, int]:
         conn.close()
     after = _total_db_size(target_path)
     return before, after
+
+
+def check_db_integrity(conn: sqlite3.Connection, quick: bool = False) -> tuple[bool, list[str]]:
+    """Run SQLite integrity check or quick check.
+
+    Returns (is_ok, error_messages). When healthy, returns (True, ["ok"]).
+    """
+    pragma = "PRAGMA quick_check" if quick else "PRAGMA integrity_check"
+    try:
+        cursor = conn.execute(pragma)
+        rows = cursor.fetchall()
+        messages = [str(r[0]) for r in rows if r and r[0] is not None]
+        if len(messages) == 1 and messages[0].lower() == "ok":
+            return True, ["ok"]
+        return False, messages
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+        return False, [str(e)]
+
+
+def check_table_presence(conn: sqlite3.Connection, version: int) -> tuple[bool, list[str]]:
+    """Verify presence of core tables for the given OpenCode version.
+
+    Returns (all_present, missing_tables).
+    """
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    existing_tables = {row[0] for row in cursor.fetchall()}
+    required_tables = (
+        ["session_v2", "session_message"]
+        if version == 2
+        else ["session", "message", "part"]
+    )
+    missing = [t for t in required_tables if t not in existing_tables]
+    return len(missing) == 0, missing
+
+
+def check_dangling_records(conn: sqlite3.Connection, version: int | None = None) -> dict[str, int]:
+    """Check for dangling/orphan records in database tables where foreign references are broken.
+
+    Returns a dict mapping table/relation description to count of dangling records.
+    """
+    if version is None:
+        version = detect_version(conn)
+    dangling: dict[str, int] = {}
+
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    existing_tables = {row[0] for row in cursor.fetchall()}
+
+    if version == 2:
+        if "session_v2" in existing_tables:
+            for tbl, col in _V2_SESSION_REFERENCE_TABLES:
+                if tbl not in existing_tables:
+                    continue
+                try:
+                    tbl_cols = {r[1] for r in conn.execute(f"PRAGMA table_info({tbl})")}
+                except sqlite3.OperationalError:
+                    continue
+                if col not in tbl_cols:
+                    continue
+                extra = ""
+                if "aggregate_type" in tbl_cols:
+                    extra = " AND aggregate_type = 'session'"
+                elif col == "aggregate_id":
+                    extra = f" AND {col} LIKE 'ses_%'"
+                c = conn.execute(
+                    f"SELECT COUNT(*) FROM {tbl} WHERE {col} NOT IN (SELECT id FROM session_v2){extra}"
+                )
+                cnt = c.fetchone()[0]
+                if cnt > 0:
+                    dangling[f"{tbl} (missing session_v2)"] = cnt
+
+            if "event" in existing_tables:
+                try:
+                    event_cols = {col[1] for col in conn.execute("PRAGMA table_info(event)")}
+                    if "session_id" in event_cols:
+                        c = conn.execute(
+                            "SELECT COUNT(*) FROM event WHERE session_id IS NOT NULL AND session_id != '' "
+                            "AND session_id NOT IN (SELECT id FROM session_v2)"
+                        )
+                        cnt = c.fetchone()[0]
+                        if cnt > 0:
+                            dangling["event (missing session_v2 by session_id)"] = cnt
+                except sqlite3.OperationalError:
+                    pass
+
+    elif version == 1 and "session" in existing_tables:
+        for tbl, col in _V1_SESSION_REFERENCE_TABLES:
+            if tbl not in existing_tables:
+                continue
+            try:
+                tbl_cols = {r[1] for r in conn.execute(f"PRAGMA table_info({tbl})")}
+            except sqlite3.OperationalError:
+                continue
+            if col not in tbl_cols:
+                continue
+            c = conn.execute(
+                f"SELECT COUNT(*) FROM {tbl} WHERE {col} NOT IN (SELECT id FROM session)"
+            )
+            cnt = c.fetchone()[0]
+            if cnt > 0:
+                dangling[f"{tbl} (missing session)"] = cnt
+
+        if "part" in existing_tables and "message" in existing_tables:
+            try:
+                part_cols = {r[1] for r in conn.execute("PRAGMA table_info(part)")}
+                if "message_id" in part_cols:
+                    c = conn.execute(
+                        "SELECT COUNT(*) FROM part WHERE message_id NOT IN (SELECT id FROM message)"
+                    )
+                    cnt = c.fetchone()[0]
+                    if cnt > 0:
+                        dangling["part (missing message)"] = cnt
+            except sqlite3.OperationalError:
+                pass
+
+    return dangling

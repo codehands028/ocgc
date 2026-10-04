@@ -99,7 +99,8 @@ def run_purge(
         if clean_archive:
             console.print("[red]Error:[/] At least one purge selection flag is required with --archive-to.")
             console.print(
-                "Use --older-than, --session, --larger-than, --keep-latest, or --subagents to select sessions to archive and purge."
+                "Use --older-than, --session, --larger-than, --keep-latest, or --subagents "
+                "to select sessions to archive and purge."
             )
         else:
             console.print("[red]Error:[/] At least one purge flag is required.")
@@ -254,7 +255,9 @@ def run_purge(
                     raise SystemExit(1) from None
 
             if archive_res.errors:
-                console.print(f"[red]Error during archiving:[/] Failed to archive {len(archive_res.errors)} session(s):")
+                console.print(
+                    f"[red]Error during archiving:[/] Failed to archive {len(archive_res.errors)} session(s):"
+                )
                 for sid, err in archive_res.errors:
                     console.print(f"  [red]• {escape(str(sid))}: {escape(str(err))}[/]")
                 console.print("[red]Aborting operation to protect against data loss. No sessions were modified.[/]")
@@ -276,7 +279,8 @@ def run_purge(
                 console.print("[red]Aborting operation to protect against data loss. No sessions were modified.[/]")
                 raise SystemExit(1)
 
-            msg = f"[green]Archived {archive_res.sessions_exported} session(s) ({format_bytes(archive_res.bytes_written)})"
+            written_str = format_bytes(archive_res.bytes_written)
+            msg = f"[green]Archived {archive_res.sessions_exported} session(s) ({written_str})"
             if diff_copied > 0:
                 msg += f" and {diff_copied} session diff file(s)"
             msg += f" to {escape(str(archive_dir))}.[/]"

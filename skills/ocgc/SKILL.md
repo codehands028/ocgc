@@ -39,6 +39,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Targeted Project Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --project <name> --dry-run` |
 | **Strip Reasoning Only** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --strip-reasoning` |
 | **Flush & Reset WAL Log** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc checkpoint` |
+| **Health Check & Doctor** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc doctor` |
 | **Export to Markdown** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc export --project <name> -o ./exports` |
 | **Archive Prior to Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --archive-to ~/.archives` |
 | **Reclaim SQLite Disk Space**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc vacuum` |

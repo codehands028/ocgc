@@ -45,8 +45,9 @@ This fork addresses these critical limitations with full v1 & v2 dual-engine com
 | **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
 | **Lightweight WAL Checkpoint** | ❌ None | ✅ **Millisecond reset (`ocgc checkpoint` with TRUNCATE)** |
 | **Session Markdown Export & Archive** | ❌ None | ✅ **Full GFM Export (`ocgc export`, `purge --archive-to`)** |
+| **Database Health Check & Diagnostics** | ❌ None | ✅ **`ocgc doctor` (Integrity, WAL bloat, dangling rows, permissions)** |
 | **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **66 comprehensive tests** for v1 & v2 end-to-end workflows |
+| **Automated Test Coverage** | ⚠️ Minimal | ✅ **79 comprehensive tests** for v1 & v2 end-to-end workflows |
 
 ---
 
@@ -330,6 +331,23 @@ SQLite does not automatically shrink its `.db` file when rows are deleted; it re
 ocgc vacuum
 ```
 *Shows disk usage before and after, as well as exact megabytes reclaimed.*
+
+---
+
+### 6. Storage Health Check & Diagnostics (`ocgc doctor`)
+
+Perform comprehensive diagnostic checks across SQLite physical integrity, schema completeness, WAL journal health, dangling foreign records, read-only permissions, and orphan files:
+
+```bash
+# Run full health check
+ocgc doctor
+
+# Fast check (uses PRAGMA quick_check)
+ocgc doctor --quick
+
+# Output structured JSON for automated pipelines / CI
+ocgc doctor --json
+```
 
 ---
 

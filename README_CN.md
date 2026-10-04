@@ -45,8 +45,9 @@ OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件�
 | **按项目/目录定向范围过滤** | ❌ 无 | ✅ **原生支持（`--project`, `--directory` 覆盖会话与快照）** |
 | **轻量级 WAL 归并与重置** | ❌ 无 | ✅ **毫秒级重置（`ocgc checkpoint` 支持 TRUNCATE 模式）** |
 | **会话 Markdown 导出与安全归档** | ❌ 无 | ✅ **完整 GFM 格式导出（`ocgc export` 与 `purge --archive-to`）** |
+| **数据库体检与健康诊断** | ❌ 无 | ✅ **`ocgc doctor`（物理完整性、WAL 膨胀、悬空行、权限探测）** |
 | **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **66 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
+| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **79 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
 
 ---
 
@@ -326,6 +327,23 @@ SQLite 在删除数据行后，默认会将空闲页保留在数据库内部以�
 ocgc vacuum
 ```
 *命令执行后会对比整理前后的体积变化，并清晰显示实际为磁盘释放的物理空间大小。*
+
+---
+
+### 6. 数据库体检与健康诊断 (`ocgc doctor`)
+
+对 OpenCode 数据库与存储空间执行全面健康检查，涵盖 SQLite 物理完整性、Schema 完备性、WAL 日志异常膨胀、跨表孤立悬空脏数据、文件系统读写权限以及磁盘孤立 diff 探测：
+
+```bash
+# 执行完整体检
+ocgc doctor
+
+# 快速检测模式（使用 PRAGMA quick_check）
+ocgc doctor --quick
+
+# 输出结构化 JSON（供脚本集成或 CI 流水线消费）
+ocgc doctor --json
+```
 
 ---
 

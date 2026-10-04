@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from test_v1_and_v2 import create_v1_db, create_v2_db
 
 from ocgc import db
 from ocgc.cli import cli
@@ -15,7 +16,6 @@ from ocgc.exporter import (
     render_session_to_markdown,
     sanitize_filename,
 )
-from test_v1_and_v2 import create_v1_db, create_v2_db
 
 
 def test_sanitize_filename() -> None:
@@ -135,9 +135,10 @@ def test_v2_standalone_reasoning_message_row_filtered(tmp_path: Path) -> None:
     conn = create_v2_db(db_file)
     now = int(time.time() * 1000)
     # Insert standalone reasoning message row (type = 'reasoning')
+    rsn_payload = json.dumps({"text": "Deep standalone reasoning text"})
     conn.execute(
         "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("msg_rsn_row", "ses_v2_root", "reasoning", 12, now, now, json.dumps({"text": "Deep standalone reasoning text"})),
+        ("msg_rsn_row", "ses_v2_root", "reasoning", 12, now, now, rsn_payload),
     )
     conn.commit()
 

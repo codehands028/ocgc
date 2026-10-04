@@ -14,6 +14,7 @@ from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, Se
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ocgc.doctor import DoctorReport
     from ocgc.exporter import ExportResult
 
 console = Console()
@@ -493,4 +494,62 @@ def print_checkpoint_result(result: CheckpointResult) -> None:
         )
     else:
         console.print("\n[dim]WAL was already empty (0 B). No pages needed checkpointing.[/dim]")
+
+
+def print_doctor_report(report: "DoctorReport") -> None:
+    """Render structured doctor health check report to the terminal using Rich."""
+    from ocgc.doctor import CheckStatus
+
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column()
+
+    for item in report.checks:
+        if item.status == CheckStatus.OK:
+            icon = f"[{C_SUCCESS}][✓][/]"
+            line = f"{icon} [bold]{item.title}:[/] [{C_SUCCESS}]{escape(item.message)}[/]"
+        elif item.status == CheckStatus.WARN:
+            icon = f"[{C_WARN}][!][/]"
+            line = f"{icon} [bold yellow]{item.title}:[/] [{C_WARN}]{escape(item.message)}[/]"
+        elif item.status == CheckStatus.ERROR:
+            icon = f"[{C_DANGER}][✗][/]"
+            line = f"{icon} [bold red]{item.title}:[/] [{C_DANGER}]{escape(item.message)}[/]"
+        else:
+            icon = f"[{C_HEADER}][i][/]"
+            line = f"{icon} [bold]{item.title}:[/] {escape(item.message)}"
+
+        grid.add_row(line)
+        if item.detail:
+            grid.add_row(f"    [dim]{escape(item.detail)}[/dim]")
+
+    if report.suggested_actions:
+        grid.add_row("")
+        grid.add_row("[bold cyan]Suggested actions:[/]")
+        for act in report.suggested_actions:
+            grid.add_row(f"  [cyan]•[/] {escape(act)}")
+
+    if report.has_critical_error:
+        panel_title = "[bold red]ocgc doctor - Storage Health Check Failed[/]"
+        border_color = "red"
+    elif not report.is_healthy:
+        panel_title = "[bold yellow]ocgc doctor - OpenCode Storage Health Check (Warnings)[/]"
+        border_color = "yellow"
+    else:
+        panel_title = "[bold cyan]ocgc doctor - OpenCode Storage Health Check[/]"
+        border_color = "cyan"
+
+    console.print(Panel(grid, title=panel_title, border_style=border_color))
+
+    if report.has_critical_error:
+        console.print(
+            "\n[bold red]Critical issues detected![/] Review errors above before running further operations."
+        )
+    elif not report.is_healthy:
+        console.print(
+            "\n[yellow]Health check finished with warnings.[/] Consider running the suggested actions above."
+        )
+    else:
+        console.print(
+            "\n[bold green]Storage health check passed![/] No anomalies or orphan data detected."
+        )
+
 
