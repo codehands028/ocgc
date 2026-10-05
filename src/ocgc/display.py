@@ -9,7 +9,16 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ocgc.db import CheckpointResult, DBInfo, FilesystemStats, PartTypeStats, ProjectRow, SessionRow
+from ocgc.db import (
+    CheckpointResult,
+    DBInfo,
+    FilesystemStats,
+    PartTypeStats,
+    ProjectRow,
+    SessionRow,
+    StripLargeOutputsSummary,
+    format_bytes,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,16 +48,6 @@ PART_TYPE_COLORS = {
     "file": "white",
     "compaction": "dim white",
 }
-
-
-def format_bytes(n: int) -> str:
-    if n >= 1_073_741_824:
-        return f"{n / 1_073_741_824:.1f} GB"
-    if n >= 1_048_576:
-        return f"{n / 1_048_576:.1f} MB"
-    if n >= 1024:
-        return f"{n / 1024:.1f} KB"
-    return f"{n} B"
 
 
 def format_age(ms_epoch: int) -> str:
@@ -427,6 +426,39 @@ def print_reasoning_summary(
     grid.add_column(style=C_VALUE)
     grid.add_row("Reasoning parts", f"{summary['part_count']:,}")
     grid.add_row("Data size", format_bytes(summary["total_bytes"]))
+    if archive_to:
+        grid.add_row("Archive to", escape(archive_to))
+    if project:
+        grid.add_row("Project filter", escape(project))
+    if directory:
+        grid.add_row("Directory filter", escape(directory))
+
+    console.print(Panel(grid, title=label, border_style=border))
+
+
+def print_strip_large_outputs_summary(
+    summary: StripLargeOutputsSummary,
+    dry_run: bool = False,
+    project: str | None = None,
+    directory: str | None = None,
+    archive_to: str | None = None,
+) -> None:
+    label = (
+        "[bold yellow]Dry Run — Large outputs/media to truncate[/]"
+        if dry_run
+        else "[bold red]Strip Large Outputs / Media[/]"
+    )
+    border = "yellow" if dry_run else "red"
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+    grid.add_row("Sessions", f"{summary.session_count:,}")
+    grid.add_row("Large parts", f"{summary.part_count:,}")
+    grid.add_row("Threshold", format_bytes(summary.threshold_bytes))
+    grid.add_row("Original size", format_bytes(summary.original_bytes))
+    reduction_label = "Estimated freed" if dry_run else "Reclaimed size"
+    grid.add_row(reduction_label, f"[{C_SUCCESS}]{format_bytes(summary.reclaimed_bytes)}[/]")
     if archive_to:
         grid.add_row("Archive to", escape(archive_to))
     if project:

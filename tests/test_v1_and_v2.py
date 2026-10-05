@@ -1527,6 +1527,317 @@ def test_cli_checkpoint_busy_exit_code(tmp_path: Path, monkeypatch: pytest.Monke
     assert "Busy (locks held)" in res.output
 
 
+def test_truncate_text_if_large() -> None:
+    # 1. 文本长度 <= 1500 字符：不截断
+    short_text = "a" * 1500
+    res_text, orig_b, rec_b, truncated = db._truncate_text_if_large(short_text, threshold_bytes=500)
+    assert not truncated
+    assert res_text == short_text
+    assert orig_b == 0 and rec_b == 0
+
+    # 2. 文本 > 1500 但字节数 <= threshold_bytes：不截断
+    long_text = "a" * 2000
+    res_text, orig_b, rec_b, truncated = db._truncate_text_if_large(long_text, threshold_bytes=3000)
+    assert not truncated
+    assert res_text == long_text
+
+    # 3. 文本超过 threshold_bytes：成功截断
+    huge_text = "HEAD_" + ("x" * 5000) + "_TAIL"
+    res_text, orig_b, rec_b, truncated = db._truncate_text_if_large(
+        huge_text, threshold_bytes=2000, label="output", head_chars=1000, tail_chars=500
+    )
+    assert truncated
+    assert res_text.startswith(huge_text[:1000])
+    assert res_text.endswith(huge_text[-500:])
+    assert "[ocgc: truncated" in res_text
+    assert "of output]" in res_text
+    assert orig_b == len(huge_text.encode("utf-8"))
+    assert rec_b > 0
+    assert len(res_text.encode("utf-8")) < orig_b
+
+
+def test_strip_large_outputs_v1(tmp_path: Path) -> None:
+    db_path = tmp_path / "strip_large_v1.db"
+    conn = create_v1_db(db_path)
+    now = int(time.time() * 1000)
+
+    # 插入一个超过 10KB 的 tool part
+    huge_tool_output = "START_LOG_" + ("A" * 10000) + "_END_LOG"
+    conn.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "part_huge_tool",
+            "msg_1",
+            "ses_v1_root",
+            now,
+            now,
+            json.dumps({
+                "type": "tool",
+                "call": "bash",
+                "state": {"status": "completed", "output": huge_tool_output},
+            }),
+        ),
+    )
+
+    # 插入一个超过 10KB 的 image part
+    huge_image_data = "data:image/png;base64," + ("B" * 10000)
+    conn.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "part_huge_image",
+            "msg_1",
+            "ses_v1_root",
+            now,
+            now,
+            json.dumps({"type": "image", "data": huge_image_data}),
+        ),
+    )
+    conn.commit()
+
+    # 阈值设为 5KB (5120 bytes)
+    threshold = 5120
+
+    # 1. 扫描 summary
+    summary = db.get_strip_large_outputs_summary(conn, threshold_bytes=threshold)
+    assert summary.session_count == 1
+    assert summary.part_count == 2
+    assert summary.original_bytes > 20000
+    assert summary.reclaimed_bytes > 15000
+
+    # 2. 指定非目标 session_ids
+    summary_empty = db.get_strip_large_outputs_summary(
+        conn, threshold_bytes=threshold, session_ids=["ses_v1_sub"]
+    )
+    assert summary_empty.part_count == 0
+
+    # 3. 真实执行截断
+    res = db.strip_large_outputs(conn, threshold_bytes=threshold)
+    assert res.sessions_affected == 1
+    assert res.parts_truncated == 2
+    assert res.bytes_reclaimed > 15000
+
+    # 4. 验证 tool output 正确被截断
+    row_tool = conn.execute("SELECT data FROM part WHERE id = 'part_huge_tool'").fetchone()
+    data_tool = json.loads(row_tool["data"])
+    truncated_out = data_tool["state"]["output"]
+    assert truncated_out.startswith(huge_tool_output[:1000])
+    assert truncated_out.endswith(huge_tool_output[-500:])
+    assert "[ocgc: truncated" in truncated_out
+
+    # 5. 验证 image 正确被截断
+    row_img = conn.execute("SELECT data FROM part WHERE id = 'part_huge_image'").fetchone()
+    data_img = json.loads(row_img["data"])
+    assert "[ocgc: truncated" in data_img["data"]
+    assert "of image data]" in data_img["data"]
+
+    # 6. 再次截断应具有幂等性
+    summary_after = db.get_strip_large_outputs_summary(conn, threshold_bytes=threshold)
+    assert summary_after.part_count == 0
+    res_after = db.strip_large_outputs(conn, threshold_bytes=threshold)
+    assert res_after.parts_truncated == 0
+
+    conn.close()
+
+
+def test_strip_large_outputs_v2(tmp_path: Path) -> None:
+    db_path = tmp_path / "strip_large_v2.db"
+    conn = create_v2_db(db_path)
+    now = int(time.time() * 1000)
+
+    # 在 root session 中插入带有超大 tool output、超大 image 以及超大 file 附件的消息
+    huge_bash = "BASH_START_" + ("X" * 8000) + "_BASH_END"
+    huge_img = "IMG_BASE64_" + ("Y" * 8000)
+    huge_error = "ERR_START_" + ("Z" * 8000) + "_ERR_END"
+    huge_file_url = "data:image/png;base64," + ("F" * 8000)
+
+    msg_data = json.dumps({
+        "time": {"created": now},
+        "content": [
+            {
+                "type": "tool",
+                "id": "tool_huge",
+                "name": "bash",
+                "state": {
+                    "status": "completed",
+                    "output": huge_bash,
+                    "error": huge_error,
+                    "content": [{"type": "text", "text": "normal"}],
+                },
+            },
+            {
+                "type": "image",
+                "data": huge_img,
+            },
+            {
+                "type": "file",
+                "url": huge_file_url,
+            },
+        ],
+    })
+
+    conn.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("msg_huge_v2", "ses_v2_root", "assistant", 10, now, now, msg_data),
+    )
+
+    # 在 subagent session 中插入一个较小但超过 2K 的部件（state.content 为单个 dict 对象）
+    medium_log = "SUB_START_" + ("M" * 3000) + "_SUB_END"
+    sub_data = json.dumps({
+        "time": {"created": now},
+        "content": [
+            {
+                "type": "tool",
+                "id": "tool_sub",
+                "name": "read",
+                "state": {
+                    "status": "completed",
+                    "content": {"type": "text", "text": medium_log},
+                },
+            }
+        ],
+    })
+    conn.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("msg_sub_v2", "ses_v2_sub", "assistant", 2, now, now, sub_data),
+    )
+    conn.commit()
+
+    # 1. 阈值 5KB (5120 bytes) -> 只有 root 会被匹配到 (huge_bash, huge_img, huge_error, huge_file_url 共 4 处)
+    summary_5k = db.get_strip_large_outputs_summary(conn, threshold_bytes=5120)
+    assert summary_5k.session_count == 1
+    assert summary_5k.part_count == 4
+
+    # 2. 阈值 2KB (2048 bytes) -> root 与 sub 均被匹配 (4 + 1 = 5 处)
+    summary_2k = db.get_strip_large_outputs_summary(conn, threshold_bytes=2048)
+    assert summary_2k.session_count == 2
+    assert summary_2k.part_count == 5
+
+    # 3. 指定 session_ids 只截断 subagent
+    res_sub = db.strip_large_outputs(conn, threshold_bytes=2048, session_ids=["ses_v2_sub"])
+    assert res_sub.sessions_affected == 1
+    assert res_sub.parts_truncated == 1
+
+    # 检查 sub 已被截断（单 dict content 正确被截断）
+    sub_row = conn.execute("SELECT data FROM session_message WHERE id = 'msg_sub_v2'").fetchone()
+    sub_parsed = json.loads(sub_row["data"])
+    assert "[ocgc: truncated" in sub_parsed["content"][0]["state"]["content"]["text"]
+
+    # 检查 root 依然未被修改
+    root_row = conn.execute("SELECT data FROM session_message WHERE id = 'msg_huge_v2'").fetchone()
+    assert "[ocgc: truncated" not in root_row["data"]
+
+    # 4. 全库截断剩余内容
+    res_all = db.strip_large_outputs(conn, threshold_bytes=2048)
+    assert res_all.sessions_affected == 1
+    assert res_all.parts_truncated == 4
+
+    root_row_after = conn.execute("SELECT data FROM session_message WHERE id = 'msg_huge_v2'").fetchone()
+    root_parsed = json.loads(root_row_after["data"])
+    tool_st = root_parsed["content"][0]["state"]
+    assert "[ocgc: truncated" in tool_st["output"]
+    assert "[ocgc: truncated" in tool_st["error"]
+    assert "[ocgc: truncated" in root_parsed["content"][1]["data"]
+    assert "[ocgc: truncated" in root_parsed["content"][2]["url"]
+    assert "of image data]" in root_parsed["content"][2]["url"]
+
+    conn.close()
+
+
+def test_cli_strip_large_outputs_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
+
+    db_path = tmp_path / "cli_strip_large.db"
+    conn = create_v2_db(db_path)
+    now = int(time.time() * 1000)
+
+    # 插入一个超过 10KB 的 tool output
+    large_str = "LOG_HEAD_" + ("W" * 10000) + "_LOG_TAIL"
+    msg_data = json.dumps({
+        "time": {"created": now},
+        "content": [
+            {
+                "type": "tool",
+                "id": "t1",
+                "name": "bash",
+                "state": {"status": "completed", "output": large_str},
+            }
+        ],
+    })
+    conn.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("msg_cli_1", "ses_v2_root", "assistant", 20, now, now, msg_data),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("OCGC_DB_PATH", str(db_path))
+
+    # 1. --strip-reasoning 与 --strip-large-outputs 互斥
+    res_conflict = runner.invoke(cli, ["purge", "--strip-reasoning", "--strip-large-outputs"])
+    assert res_conflict.exit_code != 0
+    assert "cannot be used together" in res_conflict.output
+
+    # 2. Dry run with threshold 5K
+    res_dry = runner.invoke(cli, ["purge", "--strip-large-outputs", "--threshold", "5K", "--dry-run"])
+    assert res_dry.exit_code == 0
+    assert "Large outputs/media to truncate" in res_dry.output
+    assert "Estimated freed" in res_dry.output
+
+    # 验证未被修改
+    conn2 = sqlite3.connect(str(db_path))
+    row = conn2.execute("SELECT data FROM session_message WHERE id = 'msg_cli_1'").fetchone()
+    assert "[ocgc: truncated" not in row[0]
+    conn2.close()
+
+    # 3. 真实运行带 --force
+    res_force = runner.invoke(cli, ["purge", "--strip-large-outputs", "--threshold", "5K", "--force"])
+    assert res_force.exit_code == 0
+    assert "Truncated 1 large output/media part(s)" in res_force.output
+
+    # 验证已成功截断
+    conn3 = sqlite3.connect(str(db_path))
+    row_done = conn3.execute("SELECT data FROM session_message WHERE id = 'msg_cli_1'").fetchone()
+    assert "[ocgc: truncated" in row_done[0]
+    conn3.close()
+
+    # 4. 再次执行提示未找到超大部件
+    res_none = runner.invoke(cli, ["purge", "--strip-large-outputs", "--threshold", "5K", "--force"])
+    assert res_none.exit_code == 0
+    assert "No large tool outputs or media parts found" in res_none.output
+
+    # 5. 测试与过滤条件组合（--session 以及 --project）
+    # 向 ses_v2_sub 插入超大数据
+    conn4 = sqlite3.connect(str(db_path))
+    sub_large = "SUB_CLI_" + ("S" * 8000) + "_END"
+    conn4.execute(
+        "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "msg_cli_sub",
+            "ses_v2_sub",
+            "assistant",
+            30,
+            now,
+            now,
+            json.dumps({"type": "tool", "state": {"output": sub_large}}),
+        ),
+    )
+    conn4.commit()
+    conn4.close()
+
+    # 通过 --session 指定 ses_v2_sub 进行截断
+    res_sid = runner.invoke(
+        cli,
+        ["purge", "--strip-large-outputs", "--threshold", "5K", "--session", "ses_v2_sub", "--force"],
+    )
+    assert res_sid.exit_code == 0
+    assert "Truncated 1 large output/media part(s)" in res_sid.output
+
+    conn5 = sqlite3.connect(str(db_path))
+    row_sub = conn5.execute("SELECT data FROM session_message WHERE id = 'msg_cli_sub'").fetchone()
+    assert "[ocgc: truncated" in row_sub[0]
+    conn5.close()
+
+
 
 
 

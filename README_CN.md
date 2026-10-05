@@ -236,6 +236,20 @@ ocgc purge --strip-reasoning --older-than 7d
 ```
 *说明：在 OpenCode v2 中，`ocgc` 会深入消息 JSON 的 content 列表中移除思考节点，自动将 `tokens.reasoning` 置零并清空 `session_v2.tokens_reasoning` 统计，确保数据库一致性。*
 
+#### 超大工具输出与多媒体部件截断 (`--strip-large-outputs`)
+当某些会话因模型拉取了巨型日志或用户发送了超大 Base64 高清图片而异常膨胀时，可在保留完整会话链条的前提下安全裁剪：
+
+```bash
+# 裁剪所有会话中超过 500KB 的工具输出和媒体部件（保留前 1000 字符与后 500 字符，嵌入截断标记）
+ocgc purge --strip-large-outputs
+
+# 自定义截断阈值（如超过 1MB 裁剪）
+ocgc purge --strip-large-outputs --threshold 1M
+
+# 结合会话过滤或项目范围进行演练预览
+ocgc purge --strip-large-outputs --project my-repo --dry-run
+```
+
 #### 按时间、类型或大小精细清理
 ```bash
 # 清理 7 天前的子代理（Subagent）会话（主会话不受影响）

@@ -235,6 +235,20 @@ ocgc purge --strip-reasoning --older-than 7d
 ```
 *Note: In OpenCode v2, `ocgc` cleans up embedded reasoning objects within messages, resets `tokens.reasoning` metadata, and clears `session_v2.tokens_reasoning` counters.*
 
+#### Truncate Large Tool Outputs and Media (`--strip-large-outputs`)
+When sessions swell due to massive log dumps or embedded high-res Base64 images, truncate them while keeping chat history intact:
+
+```bash
+# Truncate tool outputs and media parts exceeding 500KB across all sessions
+ocgc purge --strip-large-outputs
+
+# Custom truncation threshold (e.g., 1MB)
+ocgc purge --strip-large-outputs --threshold 1M
+
+# Dry-run preview with project filtering
+ocgc purge --strip-large-outputs --project my-repo --dry-run
+```
+
 #### Purging by Age, Type, or Size
 ```bash
 # Delete subagent sessions older than 7 days (leaves root sessions intact)

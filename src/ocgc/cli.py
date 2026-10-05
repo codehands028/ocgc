@@ -80,6 +80,18 @@ def projects(sort_by: str, limit: int | None, json_output: bool) -> None:
 @click.option("--subagents", is_flag=True, default=False, help="Delete subagent sessions (parent_id IS NOT NULL)")
 @click.option("--larger-than", default=None, help="Delete sessions larger than size (e.g., 50M, 1G)")
 @click.option("--strip-reasoning", is_flag=True, default=False, help="Remove reasoning parts only (keeps sessions)")
+@click.option(
+    "--strip-large-outputs",
+    is_flag=True,
+    default=False,
+    help="Truncate large tool outputs and media parts (keeps sessions)",
+)
+@click.option(
+    "--threshold",
+    default="500K",
+    show_default=True,
+    help="Threshold size for truncating large outputs (e.g., 500K, 1M, 2M)",
+)
 @click.option("--session", "session_ids", multiple=True, help="Delete specific session by ID (repeatable)")
 @click.option("--keep-latest", type=int, default=None, help="Keep N most recent sessions, delete the rest")
 @click.option(
@@ -113,6 +125,8 @@ def purge(
     subagents: bool,
     larger_than: str | None,
     strip_reasoning: bool,
+    strip_large_outputs: bool,
+    threshold: str,
     session_ids: tuple[str, ...],
     keep_latest: int | None,
     project: str | None,
@@ -125,6 +139,8 @@ def purge(
     force: bool,
 ) -> None:
     """Delete sessions by age, type, size, project, directory, or ID."""
+    if strip_reasoning and strip_large_outputs:
+        raise click.UsageError("--strip-reasoning and --strip-large-outputs cannot be used together.")
     if keep_latest is not None and keep_latest < 0:
         raise click.BadParameter("must be a non-negative integer", param_hint="'--keep-latest'")
     from ocgc.purger import run_clean_orphans, run_clean_snapshots, run_clean_tool_output, run_purge
@@ -152,7 +168,7 @@ def purge(
         has_more = (
             clean_orphans or clean_tool_output or older_than or subagents
             or larger_than or session_ids
-            or keep_latest is not None or strip_reasoning
+            or keep_latest is not None or strip_reasoning or strip_large_outputs
         )
         if not has_more:
             return
@@ -162,7 +178,7 @@ def purge(
         has_more = (
             clean_tool_output or older_than or subagents or larger_than
             or session_ids or keep_latest is not None
-            or strip_reasoning
+            or strip_reasoning or strip_large_outputs
         )
         if not has_more:
             return
@@ -172,7 +188,7 @@ def purge(
         has_more = (
             older_than or subagents or larger_than
             or session_ids or keep_latest is not None
-            or strip_reasoning
+            or strip_reasoning or strip_large_outputs
         )
         if not has_more:
             return
@@ -189,6 +205,8 @@ def purge(
         project=clean_proj,
         directory=clean_dir,
         archive_to=archive_to,
+        strip_large_outputs=strip_large_outputs,
+        threshold=threshold,
     )
 
 

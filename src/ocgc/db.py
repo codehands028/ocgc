@@ -74,6 +74,22 @@ class CheckpointResult:
 
 
 @dataclass
+class StripLargeOutputsSummary:
+    session_count: int
+    part_count: int
+    original_bytes: int
+    reclaimed_bytes: int
+    threshold_bytes: int
+
+
+@dataclass
+class StripLargeOutputsResult:
+    sessions_affected: int
+    parts_truncated: int
+    bytes_reclaimed: int
+
+
+@dataclass
 class SessionRow:
     id: str
     parent_id: str | None
@@ -1569,6 +1585,458 @@ def strip_reasoning(
             with contextlib.suppress(Exception):
                 conn.rollback()
             raise
+
+
+def format_bytes(n: int) -> str:
+    """格式化字节大小显示。"""
+    if n >= 1_073_741_824:
+        return f"{n / 1_073_741_824:.1f} GB"
+    if n >= 1_048_576:
+        return f"{n / 1_048_576:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n} B"
+
+
+def _truncate_text_if_large(
+    text: str,
+    threshold_bytes: int,
+    label: str = "output",
+    head_chars: int = 1000,
+    tail_chars: int = 500,
+) -> tuple[str, int, int, bool]:
+    """截断超过阈值的长文本，保留前 head_chars 与后 tail_chars。
+
+    返回 (new_text, original_bytes, reclaimed_bytes, was_truncated)
+    """
+    orig_bytes = len(text.encode("utf-8"))
+    if orig_bytes <= threshold_bytes:
+        return text, 0, 0, False
+
+    # 若字符总数不足以保留前 head_chars 与后 tail_chars（如 1000 + 500 = 1500 字符），
+    # 截断会导致首尾字符互相重叠并反向膨胀，故不作首尾截断
+    if len(text) <= head_chars + tail_chars:
+        return text, 0, 0, False
+
+    head = text[:head_chars]
+    tail = text[-tail_chars:]
+    head_bytes = len(head.encode("utf-8"))
+    tail_bytes = len(tail.encode("utf-8"))
+    removed_bytes = orig_bytes - head_bytes - tail_bytes
+    if removed_bytes <= 0:
+        return text, 0, 0, False
+
+    marker = f"\n[ocgc: truncated {format_bytes(removed_bytes)} of {label}]\n"
+    new_text = f"{head}{marker}{tail}"
+    new_bytes = len(new_text.encode("utf-8"))
+    reclaimed = orig_bytes - new_bytes
+    if reclaimed <= 0:
+        return text, 0, 0, False
+
+    return new_text, orig_bytes, reclaimed, True
+
+
+def _truncate_image_dict(
+    item: dict[str, Any],
+    threshold_bytes: int,
+) -> tuple[int, int, int]:
+    """裁剪 image 部件字典中的 base64/url/source 等超长媒体字段。"""
+    parts_truncated = 0
+    total_orig = 0
+    total_reclaimed = 0
+
+    # data 字段（Base64 字符串）
+    if isinstance(item.get("data"), str):
+        new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+            item["data"], threshold_bytes, label="image data"
+        )
+        if trunc:
+            item["data"] = new_s
+            parts_truncated += 1
+            total_orig += orig_b
+            total_reclaimed += rec_b
+
+    # url 字段（data:image/... 等内联 URL）
+    if isinstance(item.get("url"), str):
+        new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+            item["url"], threshold_bytes, label="image data"
+        )
+        if trunc:
+            item["url"] = new_s
+            parts_truncated += 1
+            total_orig += orig_b
+            total_reclaimed += rec_b
+
+    # source 字典（Anthropic/OpenAI 格式：{"source": {"type": "base64", "data": "..."}}）
+    source = item.get("source")
+    if isinstance(source, dict) and isinstance(source.get("data"), str):
+        new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+            source["data"], threshold_bytes, label="image data"
+        )
+        if trunc:
+            source["data"] = new_s
+            parts_truncated += 1
+            total_orig += orig_b
+            total_reclaimed += rec_b
+
+    # text 字段（如果有）
+    if isinstance(item.get("text"), str):
+        new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+            item["text"], threshold_bytes, label="image data"
+        )
+        if trunc:
+            item["text"] = new_s
+            parts_truncated += 1
+            total_orig += orig_b
+            total_reclaimed += rec_b
+
+    return parts_truncated, total_orig, total_reclaimed
+
+
+def _truncate_tool_content_item(
+    sub_item: dict[str, Any],
+    threshold_bytes: int,
+) -> tuple[int, int, int]:
+    """裁剪工具内部嵌套部件字典（text, image/file 或嵌套 tool）。"""
+    parts_truncated = 0
+    total_orig = 0
+    total_reclaimed = 0
+
+    sub_type = sub_item.get("type")
+    if sub_type in ("image", "file"):
+        sub_cnt, sub_orig, sub_rec = _truncate_image_dict(sub_item, threshold_bytes)
+        parts_truncated += sub_cnt
+        total_orig += sub_orig
+        total_reclaimed += sub_rec
+    elif sub_type == "tool":
+        sub_cnt, sub_orig, sub_rec = _truncate_content_item(sub_item, threshold_bytes)
+        parts_truncated += sub_cnt
+        total_orig += sub_orig
+        total_reclaimed += sub_rec
+    else:
+        if isinstance(sub_item.get("text"), str):
+            new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                sub_item["text"], threshold_bytes, label="output"
+            )
+            if trunc:
+                sub_item["text"] = new_s
+                parts_truncated += 1
+                total_orig += orig_b
+                total_reclaimed += rec_b
+
+    return parts_truncated, total_orig, total_reclaimed
+
+
+def _truncate_content_item(
+    item: dict[str, Any],
+    threshold_bytes: int,
+) -> tuple[int, int, int]:
+    """定位并裁剪 tool 或 image/file 部件中的超大输出或多媒体内容。"""
+    parts_truncated = 0
+    total_orig = 0
+    total_reclaimed = 0
+
+    itype = item.get("type")
+
+    # 1. tool 部件
+    if itype == "tool":
+        state = item.get("state")
+        if isinstance(state, dict):
+            # state.output
+            if isinstance(state.get("output"), str):
+                new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                    state["output"], threshold_bytes, label="output"
+                )
+                if trunc:
+                    state["output"] = new_s
+                    parts_truncated += 1
+                    total_orig += orig_b
+                    total_reclaimed += rec_b
+
+            # state.error
+            if isinstance(state.get("error"), str):
+                new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                    state["error"], threshold_bytes, label="output"
+                )
+                if trunc:
+                    state["error"] = new_s
+                    parts_truncated += 1
+                    total_orig += orig_b
+                    total_reclaimed += rec_b
+
+            # state.content
+            st_content = state.get("content")
+            if isinstance(st_content, str):
+                new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                    st_content, threshold_bytes, label="output"
+                )
+                if trunc:
+                    state["content"] = new_s
+                    parts_truncated += 1
+                    total_orig += orig_b
+                    total_reclaimed += rec_b
+            elif isinstance(st_content, dict):
+                # 支持 state.content 为单个部件字典的情况（如 {"type": "text", "text": "..."}）
+                sub_cnt, sub_orig, sub_rec = _truncate_tool_content_item(
+                    st_content, threshold_bytes
+                )
+                parts_truncated += sub_cnt
+                total_orig += sub_orig
+                total_reclaimed += sub_rec
+            elif isinstance(st_content, list):
+                for idx, sub_item in enumerate(st_content):
+                    if isinstance(sub_item, str):
+                        new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                            sub_item, threshold_bytes, label="output"
+                        )
+                        if trunc:
+                            st_content[idx] = new_s
+                            parts_truncated += 1
+                            total_orig += orig_b
+                            total_reclaimed += rec_b
+                    elif isinstance(sub_item, dict):
+                        sub_cnt, sub_orig, sub_rec = _truncate_tool_content_item(
+                            sub_item, threshold_bytes
+                        )
+                        parts_truncated += sub_cnt
+                        total_orig += sub_orig
+                        total_reclaimed += sub_rec
+
+        # 顶层 output 与 result
+        if isinstance(item.get("output"), str):
+            new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                item["output"], threshold_bytes, label="output"
+            )
+            if trunc:
+                item["output"] = new_s
+                parts_truncated += 1
+                total_orig += orig_b
+                total_reclaimed += rec_b
+
+        if isinstance(item.get("result"), str):
+            new_s, orig_b, rec_b, trunc = _truncate_text_if_large(
+                item["result"], threshold_bytes, label="output"
+            )
+            if trunc:
+                item["result"] = new_s
+                parts_truncated += 1
+                total_orig += orig_b
+                total_reclaimed += rec_b
+
+    # 2. image / file 部件（OpenCode 将附件存为 file，其 url 字段常为内联 base64 data URL）
+    elif itype in ("image", "file"):
+        img_cnt, img_orig, img_rec = _truncate_image_dict(item, threshold_bytes)
+        parts_truncated += img_cnt
+        total_orig += img_orig
+        total_reclaimed += img_rec
+
+    return parts_truncated, total_orig, total_reclaimed
+
+
+def _process_data_json_for_large_outputs(
+    data_str: str,
+    threshold_bytes: int,
+    fallback_type: str | None = None,
+) -> tuple[str, int, int, int]:
+    """解析单条消息或部件的 JSON 数据，并就地截断其中的超大 tool/image/file 内容。
+
+    返回 (new_data_str, parts_truncated, total_orig_bytes, total_reclaimed_bytes)
+    """
+    try:
+        data = json.loads(data_str)
+    except (json.JSONDecodeError, TypeError):
+        return data_str, 0, 0, 0
+
+    if not isinstance(data, dict):
+        return data_str, 0, 0, 0
+
+    parts_truncated = 0
+    total_orig = 0
+    total_reclaimed = 0
+
+    # 1. 如果 content 是部件数组
+    content = data.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                p_cnt, p_orig, p_rec = _truncate_content_item(item, threshold_bytes)
+                parts_truncated += p_cnt
+                total_orig += p_orig
+                total_reclaimed += p_rec
+
+    # 2. 如果 content 不是列表，或者顶层直接为 tool/image/file 部件（v1 或部分 v2 消息）
+    itype = data.get("type") or fallback_type
+    if itype in ("tool", "image", "file"):
+        p_cnt, p_orig, p_rec = _truncate_content_item(data, threshold_bytes)
+        parts_truncated += p_cnt
+        total_orig += p_orig
+        total_reclaimed += p_rec
+
+    if parts_truncated > 0:
+        # 使用 ensure_ascii=False 保持与 OpenCode 官方紧凑 UTF-8 JSON 格式一致，避免汉字被转义为 \uXXXX 导致体积虚增
+        new_data_str = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        return new_data_str, parts_truncated, total_orig, total_reclaimed
+
+    return data_str, 0, 0, 0
+
+
+def get_strip_large_outputs_summary(
+    conn: sqlite3.Connection,
+    threshold_bytes: int = 512000,
+    session_ids: list[str] | None = None,
+    version: int | None = None,
+) -> StripLargeOutputsSummary:
+    """扫描指定会话（或全库），汇总可截断的超大工具输出与媒体部件统计。"""
+    if version is None:
+        version = detect_version(conn)
+
+    # 粗筛长度：使用 threshold_bytes // 4 确保即使全为多字节字符也不漏检
+    filter_len = max(100, threshold_bytes // 4)
+
+    total_parts = 0
+    total_orig = 0
+    total_reclaimed = 0
+    affected_sessions: set[str] = set()
+
+    if version == 2:
+        query = "SELECT id, session_id, type, data FROM session_message WHERE LENGTH(data) >= ?"
+        params: list[Any] = [filter_len]
+        if session_ids is not None:
+            if not session_ids:
+                return StripLargeOutputsSummary(0, 0, 0, 0, threshold_bytes)
+            ph = ",".join("?" for _ in session_ids)
+            query += f" AND session_id IN ({ph})"
+            params.extend(session_ids)
+
+        for row in conn.execute(query, params):
+            sess_id = row["session_id"]
+            data_str = row["data"]
+            m_type = row["type"]
+            _, p_cnt, p_orig, p_rec = _process_data_json_for_large_outputs(
+                data_str, threshold_bytes, fallback_type=m_type
+            )
+            if p_cnt > 0:
+                total_parts += p_cnt
+                total_orig += p_orig
+                total_reclaimed += p_rec
+                affected_sessions.add(sess_id)
+    else:  # version == 1
+        query = "SELECT id, session_id, data FROM part WHERE LENGTH(data) >= ?"
+        params = [filter_len]
+        if session_ids is not None:
+            if not session_ids:
+                return StripLargeOutputsSummary(0, 0, 0, 0, threshold_bytes)
+            ph = ",".join("?" for _ in session_ids)
+            query += f" AND session_id IN ({ph})"
+            params.extend(session_ids)
+
+        for row in conn.execute(query, params):
+            sess_id = row["session_id"]
+            data_str = row["data"]
+            _, p_cnt, p_orig, p_rec = _process_data_json_for_large_outputs(
+                data_str, threshold_bytes
+            )
+            if p_cnt > 0:
+                total_parts += p_cnt
+                total_orig += p_orig
+                total_reclaimed += p_rec
+                affected_sessions.add(sess_id)
+
+    return StripLargeOutputsSummary(
+        session_count=len(affected_sessions),
+        part_count=total_parts,
+        original_bytes=total_orig,
+        reclaimed_bytes=total_reclaimed,
+        threshold_bytes=threshold_bytes,
+    )
+
+
+def strip_large_outputs(
+    conn: sqlite3.Connection,
+    threshold_bytes: int = 512000,
+    session_ids: list[str] | None = None,
+    version: int | None = None,
+) -> StripLargeOutputsResult:
+    """截断指定会话（或全库）中的超大工具输出与媒体部件，返回处理结果。"""
+    if version is None:
+        version = detect_version(conn)
+
+    filter_len = max(100, threshold_bytes // 4)
+
+    total_parts = 0
+    total_reclaimed = 0
+    affected_sessions: set[str] = set()
+    updates: list[tuple[str, str]] = []
+
+    if version == 2:
+        query = "SELECT id, session_id, type, data FROM session_message WHERE LENGTH(data) >= ?"
+        params: list[Any] = [filter_len]
+        if session_ids is not None:
+            if not session_ids:
+                return StripLargeOutputsResult(0, 0, 0)
+            ph = ",".join("?" for _ in session_ids)
+            query += f" AND session_id IN ({ph})"
+            params.extend(session_ids)
+
+        for row in conn.execute(query, params):
+            msg_id = row["id"]
+            sess_id = row["session_id"]
+            data_str = row["data"]
+            m_type = row["type"]
+            new_data_str, p_cnt, _, p_rec = _process_data_json_for_large_outputs(
+                data_str, threshold_bytes, fallback_type=m_type
+            )
+            if p_cnt > 0:
+                total_parts += p_cnt
+                total_reclaimed += p_rec
+                affected_sessions.add(sess_id)
+                updates.append((new_data_str, msg_id))
+
+        if updates:
+            try:
+                conn.executemany("UPDATE session_message SET data = ? WHERE id = ?", updates)
+                conn.commit()
+            except Exception:
+                with contextlib.suppress(Exception):
+                    conn.rollback()
+                raise
+    else:  # version == 1
+        query = "SELECT id, session_id, data FROM part WHERE LENGTH(data) >= ?"
+        params = [filter_len]
+        if session_ids is not None:
+            if not session_ids:
+                return StripLargeOutputsResult(0, 0, 0)
+            ph = ",".join("?" for _ in session_ids)
+            query += f" AND session_id IN ({ph})"
+            params.extend(session_ids)
+
+        for row in conn.execute(query, params):
+            part_id = row["id"]
+            sess_id = row["session_id"]
+            data_str = row["data"]
+            new_data_str, p_cnt, _, p_rec = _process_data_json_for_large_outputs(
+                data_str, threshold_bytes
+            )
+            if p_cnt > 0:
+                total_parts += p_cnt
+                total_reclaimed += p_rec
+                affected_sessions.add(sess_id)
+                updates.append((new_data_str, part_id))
+
+        if updates:
+            try:
+                conn.executemany("UPDATE part SET data = ? WHERE id = ?", updates)
+                conn.commit()
+            except Exception:
+                with contextlib.suppress(Exception):
+                    conn.rollback()
+                raise
+
+    return StripLargeOutputsResult(
+        sessions_affected=len(affected_sessions),
+        parts_truncated=total_parts,
+        bytes_reclaimed=total_reclaimed,
+    )
 
 
 def _total_db_size(path: Path) -> int:

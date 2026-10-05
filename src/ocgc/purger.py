@@ -20,6 +20,7 @@ from ocgc.display import (
     print_checkpoint_result,
     print_purge_summary,
     print_reasoning_summary,
+    print_strip_large_outputs_summary,
     print_vacuum_result,
     warn_if_opencode_running,
     warn_opencode_running,
@@ -68,6 +69,8 @@ def run_purge(
     project: str | None = None,
     directory: str | None = None,
     archive_to: str | None = None,
+    strip_large_outputs: bool = False,
+    threshold: str = "500K",
 ) -> None:
     clean_archive = os.path.expanduser(archive_to.strip()) if archive_to and archive_to.strip() else None
 
@@ -95,7 +98,7 @@ def run_purge(
         or clean_proj is not None
         or clean_dir is not None
     )
-    if not has_filter and (not strip_reasoning or clean_archive):
+    if not has_filter and ((not strip_reasoning and not strip_large_outputs) or clean_archive):
         if clean_archive:
             console.print("[red]Error:[/] At least one purge selection flag is required with --archive-to.")
             console.print(
@@ -106,12 +109,13 @@ def run_purge(
             console.print("[red]Error:[/] At least one purge flag is required.")
             console.print(
                 "Use --older-than, --subagents, --larger-than, --session, "
-                "--keep-latest, --project, --directory, or --strip-reasoning"
+                "--keep-latest, --project, --directory, --strip-reasoning, or --strip-large-outputs"
             )
         raise SystemExit(1)
 
     older_than_ms = parse_duration(older_than) if older_than else None
     larger_than_bytes = parse_size(larger_than) if larger_than else None
+    threshold_bytes = parse_size(threshold) if threshold else 512000
     now_ms = int(time.time() * 1000)
 
     if strip_reasoning and not has_filter:
@@ -147,6 +151,50 @@ def run_purge(
             conn.close()
         return
 
+    if strip_large_outputs and not has_filter:
+        # Truncate large outputs from ALL sessions
+        try:
+            conn = db.connect(readonly=True)
+        except FileNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from None
+        try:
+            version = _detect_version_or_exit(conn)
+            summary_large = db.get_strip_large_outputs_summary(
+                conn, threshold_bytes=threshold_bytes, session_ids=None, version=version
+            )
+        finally:
+            conn.close()
+
+        if summary_large.part_count == 0:
+            console.print(f"[dim]No large tool outputs or media parts found above {threshold}.[/]")
+            return
+
+        print_strip_large_outputs_summary(summary_large, dry_run=dry_run)
+
+        if dry_run:
+            return
+
+        if not force and not click.confirm(
+            f"Truncate {summary_large.part_count:,} large output/media part(s) across {summary_large.session_count:,} session(s)?"
+        ):
+            return
+
+        conn = db.connect(readonly=False)
+        try:
+            res = db.strip_large_outputs(
+                conn, threshold_bytes=threshold_bytes, session_ids=None, version=version
+            )
+            console.print(
+                f"[green]Truncated {res.parts_truncated:,} large output/media part(s) "
+                f"across {res.sessions_affected:,} session(s), freed ~{format_bytes(res.bytes_reclaimed)}.[/]"
+            )
+        finally:
+            conn.close()
+
+        console.print("[dim]Run 'ocgc checkpoint' to shrink WAL or 'ocgc vacuum' to reclaim DB pages.[/]")
+        return
+
     # Get matching session IDs
     try:
         conn = db.connect(readonly=True)
@@ -179,6 +227,22 @@ def run_purge(
                 return
             print_reasoning_summary(
                 summary,
+                dry_run=dry_run,
+                project=clean_proj,
+                directory=clean_dir,
+                archive_to=clean_archive,
+            )
+        elif strip_large_outputs:
+            summary_large = db.get_strip_large_outputs_summary(
+                conn, threshold_bytes=threshold_bytes, session_ids=matched_ids, version=version
+            )
+            if summary_large.part_count == 0:
+                console.print(
+                    f"[dim]No large tool outputs or media parts found above {threshold} in matching sessions.[/]"
+                )
+                return
+            print_strip_large_outputs_summary(
+                summary_large,
                 dry_run=dry_run,
                 project=clean_proj,
                 directory=clean_dir,
@@ -219,10 +283,14 @@ def run_purge(
             or session_ids
             or keep_latest is not None
         )
-        action = "Strip reasoning from" if strip_reasoning else "Delete"
+        action = (
+            "Strip reasoning from"
+            if strip_reasoning
+            else ("Truncate large outputs in" if strip_large_outputs else "Delete")
+        )
         if clean_archive:
             prompt = f"Archive to {clean_archive} and {action.lower()} {len(matched_ids)} session(s)?"
-        elif not strip_reasoning and not has_criteria and (clean_proj or clean_dir):
+        elif not strip_reasoning and not strip_large_outputs and not has_criteria and (clean_proj or clean_dir):
             scope = clean_proj or clean_dir
             prompt = f"Delete ALL {len(matched_ids)} session(s) in {scope}?"
         else:
@@ -289,6 +357,14 @@ def run_purge(
         if strip_reasoning:
             count = db.strip_reasoning(conn, matched_ids, version=version)
             console.print(f"[green]Deleted {count:,} reasoning parts from {len(matched_ids)} sessions.[/]")
+        elif strip_large_outputs:
+            res = db.strip_large_outputs(
+                conn, threshold_bytes=threshold_bytes, session_ids=matched_ids, version=version
+            )
+            console.print(
+                f"[green]Truncated {res.parts_truncated:,} large output/media part(s) "
+                f"from {len(matched_ids)} session(s), freed ~{format_bytes(res.bytes_reclaimed)}.[/]"
+            )
         else:
             files_result = db.purge_sessions(conn, matched_ids, version=version)
             freed = format_bytes(summary["total_bytes"])

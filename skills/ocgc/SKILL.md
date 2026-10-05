@@ -137,6 +137,8 @@ Filters can be combined:
 - `--keep-latest <N>`: Retain the most recent `N` sessions and purge older ones.
 - `--subagents`: Only target subagent sessions (`parent_id IS NOT NULL`).
 - `--strip-reasoning`: Remove bulky reasoning parts without deleting the session records.
+- `--strip-large-outputs`: Truncate bulky tool output logs and base64 media parts while keeping sessions intact.
+- `--threshold <size>`: Truncation threshold for `--strip-large-outputs` (default: `500K`).
 - `--session <ID>`: Target specific session IDs (repeatable).
 - `--archive-to <path>`: Archive matching sessions as Markdown files in `<path>` before deleting them.
 - `--clean-snapshots`: Remove git snapshot cache directories.
