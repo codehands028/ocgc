@@ -48,6 +48,16 @@ class DBInfo:
     def total_size(self) -> int:
         return self.db_size + self.wal_size
 
+    def to_dict(self) -> dict[str, Any]:
+        """将数据库信息转换为可序列化的字典。"""
+        return {
+            "path": str(self.path),
+            "db_size": self.db_size,
+            "wal_size": self.wal_size,
+            "total_size": self.total_size,
+            "version": self.version,
+        }
+
 
 @dataclass
 class CheckpointResult:
@@ -105,6 +115,21 @@ class SessionRow:
     def is_subagent(self) -> bool:
         return self.parent_id is not None
 
+    def to_dict(self) -> dict[str, Any]:
+        """将会话行转换为可序列化的字典。"""
+        return {
+            "id": self.id,
+            "parent_id": self.parent_id,
+            "directory": self.directory,
+            "title": self.title,
+            "time_created": self.time_created,
+            "time_updated": self.time_updated,
+            "size_bytes": self.size_bytes,
+            "message_count": self.message_count,
+            "project_id": self.project_id,
+            "is_subagent": self.is_subagent,
+        }
+
 
 @dataclass
 class ProjectRow:
@@ -119,6 +144,18 @@ class ProjectRow:
     @property
     def total_size(self) -> int:
         return self.data_size + self.snapshot_size
+
+    def to_dict(self) -> dict[str, Any]:
+        """将项目统计行转换为可序列化的字典。"""
+        return {
+            "directory": self.directory,
+            "project_id": self.project_id,
+            "session_count": self.session_count,
+            "data_size": self.data_size,
+            "snapshot_size": self.snapshot_size,
+            "total_size": self.total_size,
+            "last_active": self.last_active,
+        }
 
 
 @dataclass
@@ -160,6 +197,14 @@ class PartTypeStats:
     count: int
     size_bytes: int
 
+    def to_dict(self) -> dict[str, Any]:
+        """将部件类型统计转换为可序列化的字典。"""
+        return {
+            "type_name": self.type_name,
+            "count": self.count,
+            "size_bytes": self.size_bytes,
+        }
+
 
 @dataclass
 class FilesystemStats:
@@ -173,6 +218,18 @@ class FilesystemStats:
     @property
     def total_size(self) -> int:
         return self.session_diff_size + self.snapshot_size + self.tool_output_size
+
+    def to_dict(self) -> dict[str, Any]:
+        """将文件系统统计转换为可序列化的字典。"""
+        return {
+            "session_diff_size": self.session_diff_size,
+            "session_diff_count": self.session_diff_count,
+            "snapshot_size": self.snapshot_size,
+            "snapshot_count": self.snapshot_count,
+            "tool_output_size": self.tool_output_size,
+            "tool_output_count": self.tool_output_count,
+            "total_size": self.total_size,
+        }
 
 
 @dataclass
@@ -193,6 +250,14 @@ class OrphanDiff:
     session_id: str
     path: Path
     size: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """将孤立差异文件记录转换为可序列化的字典。"""
+        return {
+            "session_id": self.session_id,
+            "path": str(self.path),
+            "size": self.size,
+        }
 
 
 def _platform_default_db_path() -> Path:

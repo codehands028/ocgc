@@ -18,10 +18,16 @@ def _detect_version_or_exit(conn: sqlite3.Connection) -> int:
         raise SystemExit(1) from None
 
 
-def run_status() -> None:
+def _emit_json(payload: object) -> None:
+    """以机器可读格式将结构化数据写入标准输出。"""
+    sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+
+
+def run_status(json_output: bool = False) -> None:
     from ocgc.display import print_status, warn_if_opencode_running
 
-    warn_if_opencode_running()
+    if not json_output:
+        warn_if_opencode_running()
 
     try:
         conn = db.connect(readonly=True)
@@ -36,6 +42,24 @@ def run_status() -> None:
         now_ms = int(time.time() * 1000)
         age_dist = db.get_age_distribution(conn, now_ms, version=version)
         fs_stats = db.get_filesystem_stats()
+
+        if json_output:
+            payload = {
+                "version": version,
+                "database": db_info.to_dict(),
+                "sessions": {
+                    "total": root_count + sub_count,
+                    "root": root_count,
+                    "subagent": sub_count,
+                },
+                "filesystem": fs_stats.to_dict(),
+                "total_on_disk": db_info.total_size + fs_stats.total_size,
+                "part_types": [s.to_dict() for s in part_stats],
+                "age_distribution": age_dist,
+            }
+            _emit_json(payload)
+            return
+
         print_status(db_info, root_count, sub_count, part_stats, age_dist, fs_stats)
     finally:
         conn.close()
@@ -46,10 +70,12 @@ def run_sessions(
     limit: int | None = None,
     project: str | None = None,
     directory: str | None = None,
+    json_output: bool = False,
 ) -> None:
     from ocgc.display import print_sessions, warn_if_opencode_running
 
-    warn_if_opencode_running()
+    if not json_output:
+        warn_if_opencode_running()
 
     try:
         conn = db.connect(readonly=True)
@@ -66,6 +92,16 @@ def run_sessions(
             project=project,
             version=version,
         )
+
+        if json_output:
+            payload = {
+                "version": version,
+                "count": len(sessions),
+                "sessions": [s.to_dict() for s in sessions],
+            }
+            _emit_json(payload)
+            return
+
         if not sessions:
             from ocgc.display import console
 
@@ -79,10 +115,11 @@ def run_sessions(
         conn.close()
 
 
-def run_analyze() -> None:
+def run_analyze(json_output: bool = False) -> None:
     from ocgc.display import print_analysis, warn_if_opencode_running
 
-    warn_if_opencode_running()
+    if not json_output:
+        warn_if_opencode_running()
 
     try:
         conn = db.connect(readonly=True)
@@ -91,20 +128,65 @@ def run_analyze() -> None:
         raise SystemExit(1) from None
     try:
         version = _detect_version_or_exit(conn)
-        top_sessions = db.get_sessions(conn, sort_by="size", limit=10, version=version)
-        if not top_sessions:
+        top_sessions_limit = 10
+        orphan_diffs_limit = 20
+        top_sessions = db.get_sessions(conn, sort_by="size", limit=top_sessions_limit, version=version)
+        if not json_output and not top_sessions:
             from ocgc.display import console
 
             console.print("[dim]No sessions found.[/]")
             return
+
         root_count, sub_count = db.get_session_count(conn, version=version)
         total_sessions = root_count + sub_count
         root_stats, sub_stats = db.get_part_type_stats_by_session_type(conn, version=version)
-        total_bytes = sum(s.size_bytes for s in root_stats) + sum(s.size_bytes for s in sub_stats)
-        avg_size = total_bytes / total_sessions if total_sessions else 0
+        root_bytes = sum(s.size_bytes for s in root_stats)
+        sub_bytes = sum(s.size_bytes for s in sub_stats)
+        total_bytes = root_bytes + sub_bytes
+        avg_size = total_bytes / total_sessions if total_sessions else 0.0
         growth_rate = db.get_growth_rate(conn, version=version)
         fs_stats = db.get_filesystem_stats()
         orphans = db.get_orphan_session_diffs(conn, version=version)
+
+        if json_output:
+            root_parts = sum(s.count for s in root_stats)
+            sub_parts = sum(s.count for s in sub_stats)
+            payload = {
+                "version": version,
+                "top_sessions": [s.to_dict() for s in top_sessions],
+                "top_sessions_limit": top_sessions_limit,
+                "total_sessions": total_sessions,
+                "total_part_bytes": total_bytes,
+                "avg_session_size": avg_size,
+                "growth_rate": growth_rate,
+                "storage_by_session_type": {
+                    "root": {
+                        "parts_count": root_parts,
+                        "size_bytes": root_bytes,
+                        "breakdown": [s.to_dict() for s in root_stats],
+                    },
+                    "subagent": {
+                        "parts_count": sub_parts,
+                        "size_bytes": sub_bytes,
+                        "breakdown": [s.to_dict() for s in sub_stats],
+                    },
+                    "total": {
+                        "parts_count": root_parts + sub_parts,
+                        "size_bytes": total_bytes,
+                    },
+                },
+                "filesystem": fs_stats.to_dict(),
+                "orphan_diffs": {
+                    "count": len(orphans),
+                    "size_bytes": sum(o.size for o in orphans),
+                    "items_limit": orphan_diffs_limit,
+                    "truncated": len(orphans) > orphan_diffs_limit,
+                    "items": [o.to_dict() for o in orphans[:orphan_diffs_limit]],
+                },
+            }
+            _emit_json(payload)
+            return
+
         print_analysis(
             top_sessions=top_sessions,
             avg_size=avg_size,
@@ -142,20 +224,9 @@ def run_projects(
         if json_output:
             payload = {
                 "version": version,
-                "projects": [
-                    {
-                        "directory": p.directory,
-                        "project_id": p.project_id,
-                        "session_count": p.session_count,
-                        "data_size": p.data_size,
-                        "snapshot_size": p.snapshot_size,
-                        "total_size": p.total_size,
-                        "last_active": p.last_active,
-                    }
-                    for p in projects
-                ],
+                "projects": [p.to_dict() for p in projects],
             }
-            sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+            _emit_json(payload)
             return
 
         if not projects:

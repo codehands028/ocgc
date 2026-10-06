@@ -176,7 +176,8 @@ def run_purge(
             return
 
         if not force and not click.confirm(
-            f"Truncate {summary_large.part_count:,} large output/media part(s) across {summary_large.session_count:,} session(s)?"
+            f"Truncate {summary_large.part_count:,} large output/media part(s) "
+            f"across {summary_large.session_count:,} session(s)?"
         ):
             return
 

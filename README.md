@@ -152,6 +152,9 @@ pip install git+https://github.com/codehands028/ocgc.git
 #### High-Level Dashboard
 ```bash
 ocgc status
+
+# Emit structured JSON for scripts / CI pipelines / agents
+ocgc status --json
 ```
 Displays:
 - Database path & detected schema version (**OpenCode v1** or **OpenCode v2**)
@@ -176,12 +179,18 @@ ocgc sessions --directory "*test*"
 # Sort by age or name
 ocgc sessions --sort age --limit 20
 ocgc sessions --sort name
+
+# Emit structured JSON
+ocgc sessions --limit 10 --json
 ```
 Outputs a table with Session ID, working directory, session title, size, creation age, type (`root` or `subagent`), and message count.
 
 #### Deep Storage Analysis
 ```bash
 ocgc analyze
+
+# Emit structured JSON
+ocgc analyze --json
 ```
 Outputs:
 - Top 10 largest sessions across all workspaces

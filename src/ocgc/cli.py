@@ -13,11 +13,18 @@ def cli() -> None:
 
 
 @cli.command()
-def status() -> None:
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output the status dashboard as structured JSON",
+)
+def status(json_output: bool) -> None:
     """Dashboard: DB size, session count, storage breakdown."""
     from ocgc.analyzer import run_status
 
-    run_status()
+    run_status(json_output=json_output)
 
 
 @cli.command()
@@ -25,21 +32,47 @@ def status() -> None:
 @click.option("--limit", "-l", type=int, default=None, help="Limit number of sessions shown")
 @click.option("--project", "-p", default=None, help="Filter sessions by project name or ID")
 @click.option("--directory", "-d", default=None, help="Filter sessions by directory path or pattern")
-def sessions(sort_by: str, limit: int | None, project: str | None, directory: str | None) -> None:
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output sessions as structured JSON",
+)
+def sessions(
+    sort_by: str,
+    limit: int | None,
+    project: str | None,
+    directory: str | None,
+    json_output: bool,
+) -> None:
     """List sessions with sizes, ages, and types."""
     from ocgc.analyzer import run_sessions
 
     clean_proj = project.strip() if project and project.strip() else None
     clean_dir = directory.strip() if directory and directory.strip() else None
-    run_sessions(sort_by=sort_by, limit=limit, project=clean_proj, directory=clean_dir)
+    run_sessions(
+        sort_by=sort_by,
+        limit=limit,
+        project=clean_proj,
+        directory=clean_dir,
+        json_output=json_output,
+    )
 
 
 @cli.command()
-def analyze() -> None:
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output deep analysis as structured JSON",
+)
+def analyze(json_output: bool) -> None:
     """Deep analysis: biggest sessions, part type breakdown, growth rate."""
     from ocgc.analyzer import run_analyze
 
-    run_analyze()
+    run_analyze(json_output=json_output)
 
 
 @cli.command()

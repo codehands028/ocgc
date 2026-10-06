@@ -153,6 +153,9 @@ pip install git+https://github.com/codehands028/ocgc.git
 #### 全局健康看板
 ```bash
 ocgc status
+
+# 输出结构化 JSON（供脚本 / CI 流水线 / Agent 解析）
+ocgc status --json
 ```
 展示内容包括：
 - 数据库实际路径及检测出的架构版本（**OpenCode v1** 或 **OpenCode v2**）
@@ -177,12 +180,18 @@ ocgc sessions --directory "*test*"
 # 按创建时间或名称排序
 ocgc sessions --sort age --limit 20
 ocgc sessions --sort name
+
+# 输出结构化 JSON
+ocgc sessions --limit 10 --json
 ```
 表格清晰列出各会话的 ID、工作目录、标题、体积、创建时长、类型（`root` 主会话或 `sub` 子代理）及消息总数。
 
 #### 深度存储分析
 ```bash
 ocgc analyze
+
+# 输出结构化 JSON
+ocgc analyze --json
 ```
 深入洞察：
 - 全局体积最大的 10 个会话排行
