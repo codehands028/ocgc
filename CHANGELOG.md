@@ -7,17 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.3] - 2026-10-07
+
+First release with a fully green CI matrix. GitHub Actions had been disabled on this
+fork since it was created, so no workflow had ever executed; enabling it on the first
+push after 0.4.2 immediately surfaced three tests that assumed POSIX semantics and
+failed on every Windows runner. All three are fixed, and the matrix now passes on
+Linux, macOS, and Windows across Python 3.10–3.13.
+
 ### Fixed
 
-- Windows CI: three tests assumed POSIX semantics and failed on every Windows
-  runner. This was never caught before because Actions had been disabled on this
-  fork since it was created, so the platform matrix had never actually run.
-  `test_doctor_snapshot_dir_itself_readonly` is now skipped on Windows
-  (`os.chmod` cannot clear write access on a Windows directory);
-  `test_purge_strip_reasoning_with_archive_dry_run` no longer depends on Rich
-  panel width by pinning `COLUMNS`; and `test_install_skill_and_cli` now sets
-  `USERPROFILE` alongside `HOME`, because `ntpath.expanduser` reads the former
-  while `posixpath.expanduser` reads the latter. No product code changed.
+- `test_doctor_snapshot_dir_itself_readonly` is now skipped on Windows. `os.chmod`
+  there only toggles the read-only file attribute and cannot clear write access on
+  a directory, so the precondition the test sets up cannot be reproduced there.
+- `test_purge_strip_reasoning_with_archive_dry_run` no longer depends on Rich panel
+  width. It pinned `COLUMNS` because the 80-column test-runner default truncated
+  the rendered path with an ellipsis; it also now uses `tmp_path` instead of a
+  hardcoded `/tmp` path.
+- `test_install_skill_and_cli` now sets `USERPROFILE` alongside `HOME`.
+  `ntpath.expanduser` (Windows) reads the former while `posixpath.expanduser`
+  reads the latter, so the tilde-expansion assertion silently failed on Windows.
+
+No product code changed in this release.
 
 ### Internal
 
@@ -70,6 +83,7 @@ No user-facing command behaviour changed.
   Verified it fails against an injected parsing defect.
 - Test suite: 111 passing (was 110).
 
-[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/codehands028/ocgc/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/codehands028/ocgc/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/codehands028/ocgc/compare/v0.4.0...v0.4.1
