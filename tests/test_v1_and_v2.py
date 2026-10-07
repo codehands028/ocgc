@@ -784,10 +784,14 @@ def test_install_skill_and_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert "cannot be used together" in res_conflict.output
 
     # Test CLI install-skill with tilde in --dest
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # posixpath.expanduser reads $HOME, but ntpath.expanduser (Windows) reads
+    # $USERPROFILE instead, so both must point at the same fake home.
+    fake_home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
     res_tilde = runner.invoke(cli, ["install-skill", "--dest", "~/tilde_skills"])
     assert res_tilde.exit_code == 0
-    assert (tmp_path / "home" / "tilde_skills" / "ocgc" / "SKILL.md").exists()
+    assert (fake_home / "tilde_skills" / "ocgc" / "SKILL.md").exists()
 
     # Test CLI install-skill default global to mock home
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "fake_home")

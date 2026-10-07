@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Windows CI: two tests assumed POSIX semantics and failed on every Windows
+- Windows CI: three tests assumed POSIX semantics and failed on every Windows
   runner. This was never caught before because Actions had been disabled on this
   fork since it was created, so the platform matrix had never actually run.
   `test_doctor_snapshot_dir_itself_readonly` is now skipped on Windows
-  (`os.chmod` cannot clear write access on a Windows directory), and
+  (`os.chmod` cannot clear write access on a Windows directory);
   `test_purge_strip_reasoning_with_archive_dry_run` no longer depends on Rich
-  panel width by pinning `COLUMNS`. No product code changed.
+  panel width by pinning `COLUMNS`; and `test_install_skill_and_cli` now sets
+  `USERPROFILE` alongside `HOME`, because `ntpath.expanduser` reads the former
+  while `posixpath.expanduser` reads the latter. No product code changed.
 
 ### Internal
 
