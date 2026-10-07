@@ -126,7 +126,59 @@ def test_v2_user_content_string_and_fallback(tmp_path: Path) -> None:
     str_msg = next(m for m in transcript.messages if m.id == "msg_u_str")
     assert str_msg.content_parts[0].text == "string content from user"
     unk_msg = next(m for m in transcript.messages if m.id == "msg_u_unk")
-    assert "custom_field" in unk_msg.content_parts[0].text
+    # Only "tool" parts may have text=None (payload lives in tool_output).
+    # The fallback branch coerces with str(...), so this must never be None.
+    unk_text = unk_msg.content_parts[0].text
+    assert unk_text is not None
+    assert "custom_field" in unk_text
+    conn.close()
+
+
+def test_non_tool_content_parts_always_have_text(tmp_path: Path) -> None:
+    """Regression guard: text=None is reserved for tool parts.
+
+    Every non-tool part is built from a string field coerced with str(...), so
+    a None there would mean the parser silently dropped content. Asserting this
+    explicitly keeps that invariant from rotting as parsing branches are added.
+    """
+    db_file = tmp_path / "v2_text_invariant.db"
+    conn = create_v2_db(db_file)
+    now = int(time.time() * 1000)
+    rows = [
+        ("msg_plain", "user", 10, {"content": "plain text"}),
+        ("msg_unknown", "user", 11, {"custom_field": "custom_val"}),
+        ("msg_file", "user", 12, {"content": [{"type": "file", "url": "https://example.com/i.png"}]}),
+        ("msg_rsn", "assistant", 13, {"content": [{"type": "reasoning", "text": "thinking..."}]}),
+        (
+            "msg_tool",
+            "assistant",
+            14,
+            {"content": [{"type": "tool", "call": "bash", "state": {"status": "completed", "output": "hi"}}]},
+        ),
+    ]
+    for mid, mtype, seq, data in rows:
+        conn.execute(
+            "INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (mid, "ses_v2_root", mtype, seq, now, now, json.dumps(data)),
+        )
+    conn.commit()
+
+    transcript = db.get_session_transcript(conn, "ses_v2_root", version=2)
+    assert transcript is not None
+    by_id = {m.id: m for m in transcript.messages}
+
+    # Tool parts carry their payload elsewhere, so text stays None by design.
+    tool_part = by_id["msg_tool"].content_parts[0]
+    assert tool_part.type == "tool"
+    assert tool_part.text is None
+    assert tool_part.tool_output == "hi"
+
+    # Everything else must have text populated.
+    for mid in ("msg_plain", "msg_unknown", "msg_file", "msg_rsn"):
+        part = by_id[mid].content_parts[0]
+        assert part.type != "tool"
+        assert part.text is not None, f"{mid} part type={part.type} lost its text"
+
     conn.close()
 
 
@@ -661,7 +713,9 @@ def test_v1_structured_parts_json_fallback(tmp_path: Path) -> None:
     transcript = db.get_session_transcript(conn, "ses_v1_root", version=1)
     assert transcript is not None
     patch_part = next(p for p in transcript.messages[0].content_parts if p.type == "patch")
-    assert "diff content" in patch_part.text
+    patch_text = patch_part.text
+    assert patch_text is not None
+    assert "diff content" in patch_text
     conn.close()
 
 
@@ -687,7 +741,9 @@ def test_v2_user_content_no_text_attachment(tmp_path: Path) -> None:
     transcript = db.get_session_transcript(conn, "ses_v2_root", version=2)
     assert transcript is not None
     msg = next(m for m in transcript.messages if m.id == "msg_u_file")
-    assert "https://example.com/image.png" in msg.content_parts[0].text
+    file_text = msg.content_parts[0].text
+    assert file_text is not None
+    assert "https://example.com/image.png" in file_text
     conn.close()
 
 

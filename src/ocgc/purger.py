@@ -16,7 +16,6 @@ from ocgc.display import (
     C_DIM,
     C_VALUE,
     console,
-    format_bytes,
     print_checkpoint_result,
     print_purge_summary,
     print_reasoning_summary,
@@ -25,6 +24,7 @@ from ocgc.display import (
     warn_if_opencode_running,
     warn_opencode_running,
 )
+from ocgc.units import format_bytes
 
 
 def parse_duration(s: str) -> int:

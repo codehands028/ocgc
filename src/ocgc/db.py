@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ocgc.units import format_bytes
+
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
 
 _V2_SESSION_REFERENCE_TABLES: tuple[tuple[str, str], ...] = (
@@ -161,6 +163,9 @@ class ProjectRow:
 @dataclass
 class SessionContentPart:
     type: str  # "text", "reasoning", "tool", "file", "other"
+    # Only ``tool`` parts leave this as None: their payload lives in
+    # ``tool_output`` / ``tool_input``. Every other part type is parsed from a
+    # string field and is coerced with ``str(...)``, so it is always populated.
     text: str | None = None
     tool_name: str | None = None
     tool_input: dict[str, Any] | str | None = None
@@ -1650,17 +1655,6 @@ def strip_reasoning(
             with contextlib.suppress(Exception):
                 conn.rollback()
             raise
-
-
-def format_bytes(n: int) -> str:
-    """格式化字节大小显示。"""
-    if n >= 1_073_741_824:
-        return f"{n / 1_073_741_824:.1f} GB"
-    if n >= 1_048_576:
-        return f"{n / 1_048_576:.1f} MB"
-    if n >= 1024:
-        return f"{n / 1024:.1f} KB"
-    return f"{n} B"
 
 
 def _truncate_text_if_large(

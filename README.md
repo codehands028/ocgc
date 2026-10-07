@@ -8,7 +8,8 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-91%20passed-brightgreen.svg)](tests/test_projects.py)
+[![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](tests/)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -16,39 +17,7 @@ OpenCode stores sessions, messages, and part data in a local SQLite database tha
 
 `ocgc` provides comprehensive visibility into where your OpenCode storage goes and gives you fine-grained, safe controls to reclaim it.
 
----
-
-## ⚡ Why This Fork? (Differences from Upstream)
-
-This repository is an enhanced, production-ready fork of the original [whtsky/ocgc](https://github.com/whtsky/ocgc). While the original project laid the groundwork for OpenCode storage inspection, it only supported the legacy OpenCode v1 schema and had significant limitations on non-Unix environments.
-
-OpenCode's major architecture upgrade to **v2** completely redesigned the database schema (introducing `session_v2`, `session_message`, embedded JSON content arrays, and multiple reference tables), causing upstream `ocgc` to fail. Furthermore, Windows users faced path detection issues, process detection crashes, and permission errors during snapshot deletion.
-
-This fork addresses these critical limitations with full v1 & v2 dual-engine compatibility, first-class cross-platform support, and advanced storage analytics:
-
-### 📊 Feature Comparison Matrix
-
-| Feature / Capability | Original Upstream (`whtsky/ocgc`) | This Fork (`codehands028/ocgc`) |
-| :--- | :---: | :---: |
-| **OpenCode v2 Schema Support** | ❌ Fails (`no such table: session`) | ✅ **Full Support** (`session_v2`, `session_message`, etc.) |
-| **OpenCode v1 Schema Support** | ✅ Supported | ✅ **Supported** (100% backwards compatible) |
-| **Schema Auto-Detection** | ❌ None (hardcoded v1) | ✅ **Automatic** (dynamic detection of v1 vs v2) |
-| **v2 Part Type Storage Analysis** | ❌ Not supported | ✅ **Deep SQLite JSON parsing** (`json_each` array extraction) |
-| **v2 Cascading Session Purge** | ❌ Not supported | ✅ **Atomic cascade across 9 tables** with transaction rollback |
-| **v2 Reasoning Token Stripping** | ❌ Not supported | ✅ **Full JSON content parsing & token counter reset** |
-| **Native Windows Support** | ⚠️ Broken (POSIX paths, pgrep, snapshot permission errors) | ✅ **First-class citizen** (native AppData, tasklist, path normalization) |
-| **Windows Read-Only Snapshot Cleanup** | ❌ Fails on git packfiles (`AccessDenied`) | ✅ **Safe `_rmtree_safe`** with `chmod S_IWRITE` attribute clearing |
-| **Windows Process Detection** | ❌ Fails (`pgrep` not found) | ✅ **`tasklist` CSV inspection** (`opencode.exe`, `opencode-server.exe`, etc.) |
-| **SQLite Read-Only URI Handling** | ⚠️ Fragile string formatting | ✅ **Standard `path.resolve().as_uri()`** across all OSes |
-| **Filesystem Orphan Diff Detection** | ⚠️ v1 only | ✅ **v1 & v2 schema-aware orphan detection** |
-| **Tool Output Cache Cleanup** | ❌ None | ✅ **Native (`--clean-tool-output`, with age filter & safety checks)** |
-| **Targeted Project & Directory Scope** | ❌ None | ✅ **Native (`--project`, `--directory` across `sessions` & `purge`)** |
-| **Project-Level Storage Dashboard** | ❌ None | ✅ **Native (`ocgc projects` aggregation of sessions, data & snapshots)** |
-| **Lightweight WAL Checkpoint** | ❌ None | ✅ **Millisecond reset (`ocgc checkpoint` with TRUNCATE)** |
-| **Session Markdown Export & Archive** | ❌ None | ✅ **Full GFM Export (`ocgc export`, `purge --archive-to`)** |
-| **Database Health Check & Diagnostics** | ❌ None | ✅ **`ocgc doctor` (Integrity, WAL bloat, dangling rows, permissions)** |
-| **OpenCode Native Skill Integration** | ❌ None | ✅ **Built-in (`ocgc install-skill`)** |
-| **Automated Test Coverage** | ⚠️ Minimal | ✅ **91 comprehensive tests** for v1 & v2 end-to-end workflows |
+> **On the v1 → v2 schema break:** This project began as a fork of [whtsky/ocgc](https://github.com/whtsky/ocgc), which only supported the OpenCode v1 schema and no longer runs against current OpenCode versions. `ocgc` reads both schemas and detects which one is in use automatically. See [docs/FORK_COMPARISON_EN.md](docs/FORK_COMPARISON_EN.md) for the full capability comparison.
 
 ---
 
@@ -232,8 +201,8 @@ Aggregates storage per project / workspace so you can see which Git repos domina
 ocgc purge --older-than 14d --dry-run
 ```
 
-#### Strip Reasoning Tokens (Biggest Space Saver! 💥)
-Thinking and reasoning tokens produced by reasoning models (like Claude 3.7 Sonnet Thinking, o1, etc.) can account for **70%–80%** of total storage:
+#### Strip Reasoning Tokens (Often the Biggest Space Saver 💥)
+Reasoning models (Claude Sonnet Thinking, o-series, etc.) write thinking tokens into every session, and they accumulate forever. How much they actually occupy depends heavily on your usage — check the **Storage by Part Type** breakdown in `ocgc status` first to see whether `reasoning` is a large share for you:
 
 ```bash
 # Strip reasoning tokens from ALL sessions (keeps conversation messages, tools, and history intact)
@@ -422,7 +391,7 @@ To effectively manage OpenCode's footprint, `ocgc` analyzes two storage domains:
 
 ## 🛡️ Safety & Reliability Guarantees
 
-- **Read-Only by Default**: Commands `status`, `sessions`, and `analyze` open SQLite in strict read-only mode (`?mode=ro`) and never modify files.
+- **Read-Only by Default**: Commands `status`, `sessions`, `analyze`, `projects`, `doctor`, and `export` open SQLite in strict read-only mode (`?mode=ro`) and never modify files. Only `purge`, `checkpoint`, and `vacuum` ever open the database for writing.
 - **Active Process Detection**: Automatically alerts you if OpenCode is currently running (`pgrep` on Unix, `tasklist` CSV on Windows) to prevent concurrent write collisions or database locking.
 - **Atomic Transactions & Rollback**: In OpenCode v2, session deletion across all 9 related tables runs within an atomic transaction. Any error triggers an immediate rollback to preserve database integrity.
 - **Safe Directory Purging**: Snapshot directory cleanup on Windows properly handles read-only git pack files (`_rmtree_safe` with `chmod S_IWRITE`) without throwing `PermissionError`.
@@ -460,19 +429,12 @@ uv run pytest
 
 ---
 
-## 🤝 Attribution & Acknowledgements
-
-This project is an independent fork of [whtsky/ocgc](https://github.com/whtsky/ocgc) created by [Wu Haotian](https://github.com/whtsky). We thank the original author for creating the initial foundation and inspiring OpenCode storage management.
-
-Key enhancements in this fork:
-- Full OpenCode v2 database schema architecture support
-- Enterprise-grade cross-platform compatibility (Windows, macOS, Linux)
-- Safe 9-table cascading deletion & transaction rollbacks
-- v2 message JSON reasoning stripping and token resets
-- Robust Windows git snapshot permission handling
-
----
-
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Acknowledgements
+
+Originally created by [Wu Haotian (whtsky)](https://github.com/whtsky) as [whtsky/ocgc](https://github.com/whtsky/ocgc).

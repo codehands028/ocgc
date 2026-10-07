@@ -1,0 +1,90 @@
+name: Bug report
+description: Something doesn't work, or reports numbers that look wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you run, and what did you expect versus actually get?
+      placeholder: |
+        $ ocgc status
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: If the bug involves `purge`, reproduce with `--dry-run`. `vacuum` and `checkpoint` have no dry-run mode, so reproduce those against a copy of the database instead of live data.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Which command
+      description: "`purge` deletes session data; `vacuum` rewrites the database file and needs free disk space; `checkpoint` truncates the WAL log."
+      multiple: true
+      options:
+        - status
+        - sessions
+        - analyze
+        - projects
+        - purge
+        - export
+        - checkpoint
+        - vacuum
+        - doctor
+        - install-skill
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `ocgc --version`, your OS, and Python version.
+      render: shell
+      placeholder: |
+        $ ocgc --version
+        $ uname -srm        # Windows: ver
+        $ python3 --version # Windows: py -V
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema
+    attributes:
+      label: OpenCode schema version
+      description: Run `ocgc doctor`. If it reports a database error, mention that in "What happened" instead.
+      render: shell
+      placeholder: |
+        $ ocgc doctor
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Additional context
+      options:
+        - label: I lost session data — described above
+          required: false
+        - label: I exported or backed up my sessions first
+          required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this
+          required: true

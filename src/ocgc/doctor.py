@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ocgc import db
-from ocgc.display import format_bytes
+from ocgc.units import format_bytes
 
 
 class CheckStatus(str, Enum):

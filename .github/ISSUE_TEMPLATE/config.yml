@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Upstream project (unmaintained)
+    url: https://github.com/whtsky/ocgc/issues
+    about: Upstream has been unmaintained since 2026-04-15 and no longer runs against current OpenCode versions. Anything about the v2 schema or this fork belongs in this repository.
+  - name: OpenCode
+    url: https://github.com/anomalyco/opencode/issues
+    about: Storage behaviour or schema questions about OpenCode itself belong in the OpenCode repository.

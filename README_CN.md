@@ -8,47 +8,18 @@
 [![OpenCode Skill](https://img.shields.io/badge/OpenCode-Skill%20Ready-purple.svg)](skills/ocgc/SKILL.md)
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
-[![Tests](https://img.shields.io/badge/tests-91%20passed-brightgreen.svg)](tests/test_projects.py)
+[![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](tests/)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
-OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件（Parts）保存在本地 SQLite 数据库中，随着使用会不断膨胀且[没有内置清理机制](https://github.com/anomalyco/opencode/issues/4980)。此外，OpenCode 还会将完整的文件修改差异（session_diff）与 Git 快照（snapshot）持久化到磁盘上。尤其是随着推理思考模型（如 Claude 3.7 Sonnet Thinking、o1 等）的大量使用，思考过程（reasoning tokens）、快照和海量历史会话会迅速吞噬数 GB 甚至数十 GB 的磁盘空间，拖慢 OpenCode 的加载与查询速度。
+OpenCode 将会话（Sessions）、消息（Messages）以及具体内容部件（Parts）保存在本地 SQLite 数据库中，随着使用会不断膨胀且[没有内置清理机制](https://github.com/anomalyco/opencode/issues/4980)。此外，OpenCode 还会将完整的文件修改差异（session_diff）与 Git 快照（snapshot）持久化到磁盘上。思考过程（reasoning tokens）、快照和历史会话会持续累积，具体占用比例因使用习惯而异。
 
 `ocgc` 能够直观可视化存储分布，并提供安全、细粒度的清理策略帮您彻底收回磁盘空间。
 
 ---
 
-## ⚡ 本项目特点与原项目区别（Why This Fork?）
-
-本项目是原项目 [whtsky/ocgc](https://github.com/whtsky/ocgc) 的深度增强与生产级分支（Fork）。原项目奠定了基础的会话检查思路，但仅支持早期 OpenCode v1 数据结构，并基于较多 Unix 系统假设。
-
-随着 OpenCode 正式升级到 **v2** 版本，底层数据库模式发生了颠覆性重构（引入了 `session_v2`、`session_message`、内嵌 JSON 消息内容数组，以及多达 9 个级联引用表），导致原版工具在当前 OpenCode 版本中完全无法运行或直接报错崩溃。此外，Windows 用户在使用原版时面临默认路径错误、进程探测异常、Git 快照因 Windows 文件只读属性导致清理失败等诸多痛点。
-
-本项目针对上述限制进行了彻底重构与升级，带来双架构引擎、全平台原生支持与更深度的存储分析功能：
-
-### 📊 功能特性对比矩阵
-
-| 能力 / 特性维度 | 原项目 (`whtsky/ocgc`) | 本项目 (`codehands028/ocgc`) |
-| :--- | :---: | :---: |
-| **OpenCode v2 数据模式支持** | ❌ 报错崩溃（找不到 `session` 表） | ✅ **全面支持**（兼容 `session_v2`、`session_message` 等全部新表） |
-| **OpenCode v1 数据模式支持** | ✅ 支持 | ✅ **完美兼容**（100% 向后兼容 v1 历史数据库） |
-| **数据库版本自适应探测** | ❌ 无（写死 v1 SQL 查询） | ✅ **动态自动识别**（运行时自动判定 v1 或 v2 模式） |
-| **v2 部件存储类型深度分析** | ❌ 不支持 | ✅ **深度解析 SQLite JSON**（利用 `json_each` 精准解析各类型空间占比） |
-| **v2 会话级联清理** | ❌ 不支持 | ✅ **9 张关联表原子级联清理**，带事务异常安全回滚 |
-| **v2 思考过程（Reasoning）单独剥离** | ❌ 不支持 | ✅ **深度修改 JSON 内容并重置 token 计数器**（保留对话，省出 ~77% 空间） |
-| **Windows 原生环境支持** | ⚠️ 基本不可用（路径错误、命令缺失、权限报错） | ✅ **第一公民支持**（自动识别 AppData、tasklist 进程检查、路径规范化） |
-| **Windows Git 快照安全删除** | ❌ 失败（Git packfile 只读属性导致 `AccessDenied`） | ✅ **安全清理机制 `_rmtree_safe`**（自动强制剥离只读属性） |
-| **Windows 运行进程探测** | ❌ 失败（找不到 `pgrep` 命令） | ✅ **`tasklist` CSV 智能匹配**（识别 `opencode.exe`, `opencode-server.exe` 等） |
-| **只读 SQLite 连接处理** | ⚠️ 简易字符串拼接（在 Windows 盘符下极易出错） | ✅ **跨平台标准的 `path.resolve().as_uri()`** |
-| **磁盘孤立 Diff 文件检测** | ⚠️ 仅针对 v1 | ✅ **自适应 v1/v2 数据库识别磁盘孤立文件** |
-| **临时工具输出缓存清理** | ❌ 无 | ✅ **原生支持（`--clean-tool-output`，带时间过滤与并发防护）** |
-| **按项目/目录定向范围过滤** | ❌ 无 | ✅ **原生支持（`--project`, `--directory` 覆盖会话与快照）** |
-| **项目级存储大盘** | ❌ 无 | ✅ **原生支持（`ocgc projects` 按项目聚合会话、数据与快照占用排行）** |
-| **轻量级 WAL 归并与重置** | ❌ 无 | ✅ **毫秒级重置（`ocgc checkpoint` 支持 TRUNCATE 模式）** |
-| **会话 Markdown 导出与安全归档** | ❌ 无 | ✅ **完整 GFM 格式导出（`ocgc export` 与 `purge --archive-to`）** |
-| **数据库体检与健康诊断** | ❌ 无 | ✅ **`ocgc doctor`（物理完整性、WAL 膨胀、悬空行、权限探测）** |
-| **OpenCode 原生 Skill 扩展** | ❌ 无 | ✅ **内置支持一键安装（`ocgc install-skill`）** |
-| **自动化测试覆盖率** | ⚠️ 极少 | ✅ **91 项端到端综合测试**（覆盖 v1/v2 全部核心流程与文件清理） |
+> **关于 v1 → v2 架构断裂：** 本项目最初源自 [whtsky/ocgc](https://github.com/whtsky/ocgc) 的分支（Fork）。原项目仅支持 OpenCode v1 数据库结构，在当前 OpenCode 版本上已无法运行。`ocgc` 同时兼容 v1 与 v2 两种架构，并会在运行时自动识别当前使用的架构。完整的能力差异对比请见 [docs/FORK_COMPARISON.md](docs/FORK_COMPARISON.md)。
 
 ---
 
@@ -233,8 +204,8 @@ ocgc projects --json
 ocgc purge --older-than 14d --dry-run
 ```
 
-#### 剥离思考过程（收益最大的空间节省项！💥）
-深度思考模型产生的大量 reasoning tokens 通常占用了总存储的 **70%–80%**：
+#### 剥离思考过程（往往是收益最大的空间节省项💥）
+深度思考模型（Claude Sonnet Thinking、o 系列等）会在每次会话中写入思考 token（reasoning tokens），且永不自动清理。其实际占比因使用习惯而异，建议先运行 `ocgc status` 查看 **Storage by Part Type** 分布，确认 `reasoning` 在你的库中是否占比可观：
 
 ```bash
 # 剥离所有会话的 reasoning 思考内容（完美保留用户提示词、助手回答正文与工具调用历史）
@@ -418,7 +389,7 @@ OpenCode 将数据分布在数据库与本地文件系统中：
 
 ## 🛡️ 安全与工程可靠性保障
 
-- **默认全流程只读保护**：`status`、`sessions` 和 `analyze` 命令均以严格的 SQLite 只读 URI 模式（`?mode=ro`）打开数据库，绝不修改任何数据。
+- **默认全流程只读保护**：`status`、`sessions`、`analyze`、`projects`、`doctor` 与 `export` 命令均以严格的 SQLite 只读 URI 模式（`?mode=ro`）打开数据库，绝不修改任何数据；仅 `purge`、`checkpoint` 与 `vacuum` 会以写入模式打开数据库。
 - **活跃进程冲突检测与预警**：运行前自动检测 OpenCode 是否处于运行状态（Unix 环境使用 `pgrep`，Windows 环境使用 `tasklist` CSV 智能匹配），避免并发写入造成数据库锁死或损坏。
 - **9 表级联原子事务回滚**：在 v2 模式下，针对 9 张关联引用表的级联删除全程处于同一数据库事务中，若发生意外错误会自动回滚，确保数据零损坏。
 - **Windows 只读文件权限处理**：在 Windows 系统上，Git 快照目录下的文件常带有只读权限。`ocgc` 实现了安全递归删除机制（`_rmtree_safe` 结合 `chmod S_IWRITE`），彻底杜绝由于权限不足导致的崩溃。
@@ -456,19 +427,12 @@ uv run pytest
 
 ---
 
-## 🤝 致谢与分支说明
-
-本项目是基于 [Wu Haotian (@whtsky)](https://github.com/whtsky) 所创建的原版开源项目 [whtsky/ocgc](https://github.com/whtsky/ocgc) 衍生的独立升级分支。衷心感谢原作者为 OpenCode 存储管理所提供的灵感与初始设计！
-
-本分支的核心增量贡献包括：
-- 全面适配与重构 OpenCode v2 数据库模式体系
-- 企业级 Windows / Linux / macOS 全平台跨平台兼容
-- 安全的 9 关联表级联删除与事务回滚机制
-- v2 消息 JSON 深度解析与 Reasoning 思考过程独立剥离
-- 解决 Windows Git 快照只读属性清理限制与进程检测问题
-
----
-
 ## 📄 开源许可证
 
 本项目基于 [MIT](LICENSE) 许可证开源。
+
+---
+
+## 🙏 致谢
+
+本项目最初由 [Wu Haotian (@whtsky)](https://github.com/whtsky) 作为 [whtsky/ocgc](https://github.com/whtsky/ocgc) 创建。

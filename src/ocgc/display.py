@@ -17,8 +17,8 @@ from ocgc.db import (
     ProjectRow,
     SessionRow,
     StripLargeOutputsSummary,
-    format_bytes,
 )
+from ocgc.units import format_bytes
 
 if TYPE_CHECKING:
     from pathlib import Path
