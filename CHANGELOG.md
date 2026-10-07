@@ -21,8 +21,9 @@ No user-facing command behaviour changed.
 - `format_bytes` is no longer re-exported through `ocgc.display`. It now lives in
   a dedicated leaf module, `ocgc.units`, and is imported directly by `display`,
   `doctor`, and `purger`. `ocgc.db.format_bytes` remains importable.
-- README badges: test count corrected from a stale hardcoded 91 to the actual 110,
-  and the badge no longer deep-links to a single test file. Added a real CI badge.
+- README badges: test count corrected from a stale hardcoded count to the actual
+  111, and the badge no longer deep-links to a single test file. Added a real CI
+  badge.
 
 ### Added
 

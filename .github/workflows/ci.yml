@@ -4,6 +4,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Allows re-running the matrix from the Actions tab without pushing a commit,
+  # which is needed to verify the platform matrix before cutting a release.
+  workflow_dispatch:
 
 permissions:
   contents: read
