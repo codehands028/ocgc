@@ -3,10 +3,12 @@
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 from test_v1_and_v2 import create_v1_db, create_v2_db
 
@@ -232,7 +234,17 @@ def test_doctor_snapshot_readonly(tmp_path: Path) -> None:
         os.chmod(snap_file, 0o666)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os.chmod cannot remove write permission from a Windows directory",
+)
 def test_doctor_snapshot_dir_itself_readonly(tmp_path: Path) -> None:
+    """A read-only snapshot dir must be reported as a permission warning.
+
+    Skipped on Windows: os.chmod there only toggles the read-only file
+    attribute and does not clear write access on a directory, so the
+    precondition this test sets up cannot be reproduced.
+    """
     db_file = tmp_path / "opencode.db"
     conn = create_v2_db(db_file)
     conn.close()

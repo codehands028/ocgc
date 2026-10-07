@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Windows CI: two tests assumed POSIX semantics and failed on every Windows
+  runner. This was never caught before because Actions had been disabled on this
+  fork since it was created, so the platform matrix had never actually run.
+  `test_doctor_snapshot_dir_itself_readonly` is now skipped on Windows
+  (`os.chmod` cannot clear write access on a Windows directory), and
+  `test_purge_strip_reasoning_with_archive_dry_run` no longer depends on Rich
+  panel width by pinning `COLUMNS`. No product code changed.
+
+### Internal
+
+- Added `workflow_dispatch` to CI so the platform matrix can be re-run from the
+  Actions tab without pushing a commit.
 
 ## [0.4.2] - 2026-10-07
 

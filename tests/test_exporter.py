@@ -658,7 +658,11 @@ def test_purge_strip_reasoning_with_archive_dry_run(
     monkeypatch.setenv("OCGC_DB_PATH", str(db_file))
     monkeypatch.setenv("OCGC_SKIP_RUNNING_CHECK", "1")
 
-    archive_dir = Path("/tmp/arch_rsn_test")
+    archive_dir = tmp_path / "arch"
+    # Rich derives console width from COLUMNS on every write. The CliRunner
+    # default of 80 columns truncates the panel value with an ellipsis, so widen
+    # it enough that the full path is rendered on every platform.
+    monkeypatch.setenv("COLUMNS", "220")
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -667,7 +671,7 @@ def test_purge_strip_reasoning_with_archive_dry_run(
     assert result.exit_code == 0
     assert "Reasoning parts to strip" in result.output
     assert "Archive to" in result.output
-    assert "/tmp/arch_rsn_test" in result.output
+    assert str(archive_dir) in result.output
 
 
 def test_export_cmd_older_than_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
