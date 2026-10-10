@@ -35,6 +35,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Check Dashboard** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc status` |
 | **Deep Analysis** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc analyze` |
 | **Project Dashboard** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc projects` |
+| **Interactive TUI Browser** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc browse` |
 | **List Top 10 Sessions** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --sort size -l 10` |
 | **Filter by Project/Dir** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc sessions --project <name>` |
 | **Preview Purge (Dry-run)** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --dry-run` |

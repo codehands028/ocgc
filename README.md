@@ -9,7 +9,7 @@
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
 [![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-126%20passed-brightgreen.svg)](tests/)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -153,6 +153,25 @@ ocgc sessions --sort name
 ocgc sessions --limit 10 --json
 ```
 Outputs a table with Session ID, working directory, session title, size, creation age, type (`root` or `subagent`), and message count.
+
+#### Interactive Session Selector (`browse`)
+```bash
+# Launch interactive TUI session browser
+ocgc browse
+
+# Filter by project and sort by creation age
+ocgc browse --project my-app --sort age
+```
+Keybindings:
+- `↑ / ↓ / j / k`: Move cursor up / down
+- `PageUp / PageDown`: Scroll one page up / down
+- `d`: Toggle cascade deletion flag `[D]` on highlighted session
+- `r`: Toggle reasoning stripping flag `[R]` on highlighted session
+- `Space / u`: Clear flags from highlighted session
+- `a`: Toggle all sessions
+- `Enter`: Submit selected actions for preview and confirmation (`[y/N]`)
+- `?`: Toggle keybindings help overlay
+- `q / Esc`: Quit immediately without modifications
 
 #### Deep Storage Analysis
 ```bash

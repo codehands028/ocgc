@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ocgc"
-version = "0.4.3"
+version = "0.4.4"
 description = "OpenCode Garbage Collector — analyze and reclaim storage used by OpenCode (v1 and v2) sessions, diffs, and snapshots"
 readme = "README.md"
 requires-python = ">=3.10"

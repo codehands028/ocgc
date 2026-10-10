@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [0.4.4] - 2026-10-10
+
+### Added
+
+- Interactive TUI session selector (`ocgc browse`):
+  - Keyboard-driven navigation (arrow keys, `j`/`k`, `PageUp`/`PageDown`, `Home`/`End`).
+  - Session action tagging: press `d` to mark for deletion (`[D]`), `r` to mark for reasoning stripping (`[R]`), `Space`/`u` to unmark, and `a` to toggle all.
+  - Supports `--sort` (`size`, `age`, `name`), `--limit`, `--project`, `--directory`, and `--page-size`.
+  - Non-TTY safety guard preventing interactive failure in headless environments.
+  - Two-stage workflow: visual selection followed by preview summary and confirmation (`[y/N]`) before atomic execution.
+  - Zero extra dependencies: implemented with Python standard library (`termios`/`tty` on POSIX and `msvcrt` on Windows) and Rich.
+
+### Changed
+
+- Extended GitHub Actions CI workflow push triggers to cover both `main` and `dev` branches.
+- Optimized CI concurrency group with `cancel-in-progress` for `dev` branch pushes to prevent redundant matrix job queues.
+- Test suite expanded to 126 tests across Linux, macOS, and Windows (was 111).
+
 ## [0.4.3] - 2026-10-07
 
 First release with a fully green CI matrix. GitHub Actions had been disabled on this
@@ -83,7 +101,8 @@ No user-facing command behaviour changed.
   Verified it fails against an injected parsing defect.
 - Test suite: 111 passing (was 110).
 
-[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/codehands028/ocgc/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/codehands028/ocgc/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/codehands028/ocgc/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/codehands028/ocgc/compare/v0.4.0...v0.4.1

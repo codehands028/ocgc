@@ -38,8 +38,9 @@ the equivalent document.
 | **Session Markdown export & archive** | ❌ None | ✅ **Full GFM export** (`ocgc export`, `purge --archive-to`) |
 | **Database health check & diagnostics** | ❌ None | ✅ **`ocgc doctor`** (integrity, WAL bloat, dangling rows, permissions) |
 | **Structured JSON output** | ❌ None | ✅ **Native** (`status` / `sessions` / `analyze` / `projects` / `doctor`) |
+| **Interactive terminal selector** | ❌ None | ✅ **Native** (`ocgc browse`, TUI keyboard tagging & preview) |
 | **OpenCode native skill integration** | ❌ None | ✅ **Built-in** (`ocgc install-skill`) |
-| **Automated test coverage** | ⚠️ Minimal | ✅ **111 tests** covering v1 and v2 end-to-end flows |
+| **Automated test coverage** | ⚠️ Minimal | ✅ **126 tests** covering v1 and v2 end-to-end flows |
 
 ---
 

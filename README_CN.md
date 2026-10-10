@@ -9,7 +9,7 @@
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
 [![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-111%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-126%20passed-brightgreen.svg)](tests/)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -156,6 +156,25 @@ ocgc sessions --sort name
 ocgc sessions --limit 10 --json
 ```
 表格清晰列出各会话的 ID、工作目录、标题、体积、创建时长、类型（`root` 主会话或 `sub` 子代理）及消息总数。
+
+#### 交互式终端选择器 (`browse`)
+```bash
+# 启动交互式终端选择器
+ocgc browse
+
+# 按项目过滤并按创建时间排序
+ocgc browse --project my-app --sort age
+```
+键盘快捷操作：
+- `↑ / ↓ / j / k`：上下移动光标
+- `PageUp / PageDown`：向上 / 向下翻页
+- `d`：标记当前高亮会话待物理删除 `[D]`（再按取消）
+- `r`：标记当前高亮会话待剥离思考过程 `[R]`（再按取消）
+- `Space / u`：清除当前会话标记
+- `a`：全选 / 清空切换
+- `Enter`：提交所选操作，弹出预览清单与 `[y/N]` 二次确认
+- `?`：切换按键帮助说明面板
+- `q / Esc`：直接退出，不做任何修改
 
 #### 深度存储分析
 ```bash

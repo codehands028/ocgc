@@ -452,3 +452,40 @@ def install_skill_cmd(dest: str | None, workspace: bool) -> None:
     run_install_skill(dest=dest, workspace=workspace)
 
 
+@cli.command("browse")
+@click.option(
+    "--sort",
+    "sort_by",
+    type=click.Choice(["size", "age", "name"]),
+    default="size",
+    show_default=True,
+    help="Sort sessions by: size, age, or name",
+)
+@click.option("--limit", "-l", type=int, default=None, help="Limit number of sessions loaded")
+@click.option("--project", "-p", default=None, help="Filter sessions by project name or ID")
+@click.option("--directory", "-d", default=None, help="Filter sessions by directory path or pattern")
+@click.option("--page-size", type=int, default=10, show_default=True, help="Number of sessions per page")
+def browse(
+    sort_by: str,
+    limit: int | None,
+    project: str | None,
+    directory: str | None,
+    page_size: int,
+) -> None:
+    """Interactive TUI session selector for browsing, deleting, and stripping reasoning."""
+    from ocgc.browser import run_browser
+
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+    exit_code = run_browser(
+        sort_by=sort_by,
+        limit=limit,
+        project=clean_proj,
+        directory=clean_dir,
+        page_size=page_size,
+    )
+    if exit_code != 0:
+        raise SystemExit(exit_code)
+
+
+

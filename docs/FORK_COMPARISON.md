@@ -31,8 +31,9 @@
 | **会话 Markdown 导出与归档** | ❌ 无 | ✅ **完整 GFM 导出**（`ocgc export`、`purge --archive-to`） |
 | **数据库体检与诊断** | ❌ 无 | ✅ **`ocgc doctor`**（完整性、WAL 膨胀、悬空行、权限） |
 | **结构化 JSON 输出** | ❌ 无 | ✅ **原生**（`status` / `sessions` / `analyze` / `projects` / `doctor`） |
+| **交互式终端选择器** | ❌ 无 | ✅ **原生**（`ocgc browse`，TUI 键盘标记与预览执行） |
 | **OpenCode 原生 Skill 集成** | ❌ 无 | ✅ **内置**（`ocgc install-skill`） |
-| **自动化测试覆盖** | ⚠️ 较少 | ✅ **111 个测试**，覆盖 v1 与 v2 端到端流程 |
+| **自动化测试覆盖** | ⚠️ 较少 | ✅ **126 个测试**，覆盖 v1 与 v2 端到端流程 |
 
 ---
 
