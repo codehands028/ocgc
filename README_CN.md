@@ -9,7 +9,7 @@
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
 [![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-126%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-135%20passed-brightgreen.svg)](tests/)
 
 **ocgc** 是一款专为 [OpenCode](https://github.com/anomalyco/opencode) 设计的存储深度分析与智能垃圾回收工具。全面原生支持 **OpenCode v1 与 v2** 架构，完美跨 **Windows、macOS 与 Linux** 全平台。
 
@@ -380,6 +380,38 @@ ocgc doctor --json
 
 ---
 
+### 7. 一键优化安全策略 (`ocgc auto`)
+
+为避免繁琐的命令行参数组合，`ocgc auto` 提供了预设的安全维护与深度清理策略，一键收敛垃圾存储：
+
+```bash
+# 默认安全优化模式（推荐：清理孤立diff + 清理临时工具输出 + 剥离14天前会话思考过程 + WAL checkpoint）
+ocgc auto
+
+# 显式指定 safe 策略
+ocgc auto --preset safe
+
+# 深度激进清理模式（清理30天前旧会话 + 清理全部快照 + 剥离剩余会话思考过程 + 完整 VACUUM）
+ocgc auto --preset aggressive
+
+# 预演优化计划（演练模式，仅计算预估释放空间，不进行实际修改）
+ocgc auto --dry-run
+
+# 跳过交互提示强制执行（适用于自动化脚本与定时运维任务）
+ocgc auto --force
+
+# 输出结构化 JSON 计划或执行报告
+ocgc auto --dry-run --json
+ocgc auto --force --json
+```
+
+| 预设策略 | 核心动作说明 | 适用场景与安全性 |
+| :--- | :--- | :--- |
+| **`safe`（安全推荐，默认）** | 1. 清理孤立 diff 文件<br>2. 清理 `tool-output/` 临时文件<br>3. 剥离 14 天以前旧会话的 Reasoning 思考过程<br>4. 执行 WAL `checkpoint (TRUNCATE)` 截断归零 | **完全非破坏性**，保留全部活跃会话与快照，开箱即用日常维护 |
+| **`aggressive`（彻底瘦身）** | 1. 物理删除 30 天以前所有旧会话及关联记录<br>2. 清理全部项目 Git 快照目录<br>3. 剥离全库剩余所有会话的 Reasoning<br>4. 执行完整数据库 `vacuum` 磁盘碎片整理 | **深度彻底腾挪空间**，适合磁盘极度紧张、重置旧数据的场景 |
+
+---
+
 ## 🗄️ OpenCode 存储架构图解
 
 OpenCode 将数据分布在数据库与本地文件系统中：
@@ -408,11 +440,11 @@ OpenCode 将数据分布在数据库与本地文件系统中：
 
 ## 🛡️ 安全与工程可靠性保障
 
-- **默认全流程只读保护**：`status`、`sessions`、`analyze`、`projects`、`doctor` 与 `export` 命令均以严格的 SQLite 只读 URI 模式（`?mode=ro`）打开数据库，绝不修改任何数据；仅 `purge`、`checkpoint` 与 `vacuum` 会以写入模式打开数据库。
+- **默认全流程只读保护**：`status`、`sessions`、`analyze`、`projects`、`doctor` 与 `export` 命令均以严格的 SQLite 只读 URI 模式（`?mode=ro`）打开数据库；`auto`（演练与规划阶段）和 `browse` 在用户确认前完全只读，绝不修改数据；仅在确认执行清理时以写入模式安全连接。
 - **活跃进程冲突检测与预警**：运行前自动检测 OpenCode 是否处于运行状态（Unix 环境使用 `pgrep`，Windows 环境使用 `tasklist` CSV 智能匹配），避免并发写入造成数据库锁死或损坏。
 - **9 表级联原子事务回滚**：在 v2 模式下，针对 9 张关联引用表的级联删除全程处于同一数据库事务中，若发生意外错误会自动回滚，确保数据零损坏。
 - **Windows 只读文件权限处理**：在 Windows 系统上，Git 快照目录下的文件常带有只读权限。`ocgc` 实现了安全递归删除机制（`_rmtree_safe` 结合 `chmod S_IWRITE`），彻底杜绝由于权限不足导致的崩溃。
-- **交互确认与二次防误触**：所有破坏性清理操作必须交互确认（除非显式指定 `--force`），避免误删重要数据。
+- **交互确认与二次防误触**：所有破坏性清理操作（`purge`、`browse`、`auto`）必须交互确认（除非显式指定 `--force`），避免误删重要数据。
 
 ---
 

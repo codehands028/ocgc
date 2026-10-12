@@ -488,4 +488,26 @@ def browse(
         raise SystemExit(exit_code)
 
 
+@cli.command("auto")
+@click.option(
+    "--preset",
+    "-p",
+    type=click.Choice(["safe", "aggressive"], case_sensitive=False),
+    default="safe",
+    show_default=True,
+    help="Optimization preset: safe (recommended, preserves sessions) or aggressive (deep reclamation)",
+)
+@click.option("--dry-run", "-n", is_flag=True, default=False, help="Show optimization plan without applying changes")
+@click.option("--force", "-f", is_flag=True, default=False, help="Skip interactive confirmation prompt")
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output optimization plan or execution result as structured JSON",
+)
+def auto_cmd(preset: str, dry_run: bool, force: bool, json_output: bool) -> None:
+    """One-click storage optimization with preset policies (safe or aggressive)."""
+    from ocgc.optimizer import run_auto
 
+    run_auto(preset=preset, dry_run=dry_run, force=force, json_output=json_output)

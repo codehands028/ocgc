@@ -22,6 +22,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 - When removing stale sessions older than a specific timeframe (e.g. 14 days, 30 days)
 - When cleaning up sessions or snapshots scoped to a specific project or workspace directory
 - When cleaning up orphan session diffs or git snapshot directories
+- When running one-click safe or aggressive storage optimization presets (`ocgc auto`)
 
 ## When NOT to Use
 
@@ -46,6 +47,7 @@ OpenCode maintains its historical sessions, messages, part data, and reasoning t
 | **Structured JSON Output** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc status --json` |
 | **Export to Markdown** | `uvx --from git+https://github.com/codehands028/ocgc.git ocgc export --project <name> -o ./exports` |
 | **Archive Prior to Purge**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc purge --older-than 30d --archive-to ~/.archives` |
+| **One-Click Auto Optimize**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc auto` |
 | **Reclaim SQLite Disk Space**| `uvx --from git+https://github.com/codehands028/ocgc.git ocgc vacuum` |
 
 > *Note: If `ocgc` is installed globally via `uv tool install` or `pipx`, replace the `uvx ...` prefix with `ocgc`.*
@@ -127,6 +129,21 @@ ocgc vacuum
 **Prerequisites for VACUUM:**
 - OpenCode must NOT be running (ensure no locks).
 - Free disk space must be at least equal to the current database size during compaction.
+
+### 6. Alternative: One-Click Storage Optimization (`ocgc auto`)
+
+Instead of manual multi-step purging, run preset maintenance policies directly:
+
+```bash
+# Recommended safe mode (dry-run preview first)
+ocgc auto --dry-run
+
+# Apply safe optimization (cleans orphans, tool outputs, strips >14d reasoning, and flushes WAL)
+ocgc auto
+
+# Deep reclamation (purges >30d sessions, cleans all snapshots, strips reasoning, and vacuums)
+ocgc auto --preset aggressive
+```
 
 ---
 

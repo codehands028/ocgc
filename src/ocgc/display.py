@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from ocgc.doctor import DoctorReport
     from ocgc.exporter import ExportResult
+    from ocgc.optimizer import OptimizationPlan, OptimizationResult
 
 console = Console()
 
@@ -617,3 +618,86 @@ def print_doctor_report(report: "DoctorReport") -> None:
         )
 
 
+def print_auto_plan(plan: "OptimizationPlan", dry_run: bool = False) -> None:
+    """以 Rich 面板格式输出一键优化的预估执行计划。"""
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+
+    grid.add_row("Preset", f"[bold cyan]{plan.preset.upper()}[/]")
+    grid.add_row("Database", escape(plan.db_path))
+    grid.add_row("Schema", f"OpenCode v{plan.db_version}")
+    grid.add_row("", "")
+
+    for idx, step in enumerate(plan.steps, 1):
+        grid.add_row(
+            f"Step {idx}",
+            f"[bold]{escape(step.name)}[/] — {format_bytes(step.estimated_bytes)} [dim]({escape(step.detail)})[/dim]",
+        )
+
+    grid.add_row("", "")
+    grid.add_row("Estimated reclaim", f"[bold green]~{format_bytes(plan.estimated_total_bytes)}[/]")
+
+    title_label = "Dry Run — Optimization Plan" if dry_run else f"Optimization Plan ({plan.preset.upper()})"
+    border_color = "yellow" if dry_run else ("cyan" if plan.preset == "safe" else "yellow")
+    console.print(Panel(grid, title=f"[bold {border_color}]{title_label}[/]", border_style=border_color))
+    if dry_run:
+        console.print("[dim]Dry run mode: No changes were applied to database or files.[/]")
+
+
+def print_auto_result(result: "OptimizationResult") -> None:
+    """以 Rich 面板格式输出一键优化执行结果。"""
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+
+    grid.add_row("Preset", f"[bold cyan]{result.preset.upper()}[/]")
+    grid.add_row("Database", escape(result.db_path))
+    grid.add_row("Schema", f"OpenCode v{result.db_version}")
+    grid.add_row("", "")
+
+    for idx, step in enumerate(result.steps, 1):
+        if step.status == "ok":
+            icon = f"[{C_SUCCESS}][✓][/]"
+            step_style = C_SUCCESS
+        elif step.status == "skipped":
+            icon = f"[{C_DIM}][•][/]"
+            step_style = C_DIM
+        elif step.status == "warn":
+            icon = f"[{C_WARN}][!][/]"
+            step_style = C_WARN
+        else:
+            icon = f"[{C_DANGER}][✗][/]"
+            step_style = C_DANGER
+
+        reclaimed_str = f" (+{format_bytes(step.bytes_reclaimed)})" if step.bytes_reclaimed > 0 else ""
+        grid.add_row(
+            f"{icon} Step {idx}",
+            f"[bold]{escape(step.name)}[/]: [{step_style}]{escape(step.message)}[/]{reclaimed_str}",
+        )
+
+    grid.add_row("", "")
+    grid.add_row("Total reclaimed", f"[bold green]~{format_bytes(result.total_bytes_reclaimed)}[/]")
+
+    has_errors = any(s.status == "error" for s in result.steps)
+    has_warnings = any(s.status == "warn" for s in result.steps)
+
+    if has_errors:
+        panel_title = f"Optimization Finished with Errors ({result.preset.upper()})"
+        border_color = "red"
+    elif has_warnings:
+        panel_title = f"Optimization Finished with Warnings ({result.preset.upper()})"
+        border_color = "yellow"
+    else:
+        panel_title = f"Optimization Complete ({result.preset.upper()})"
+        border_color = "green" if result.preset == "safe" else "cyan"
+
+    console.print(Panel(grid, title=f"[bold {border_color}]{panel_title}[/]", border_style=border_color))
+
+    if has_errors:
+        failed_count = sum(1 for s in result.steps if s.status == "error")
+        console.print(f"[{C_DANGER}]Optimization finished with {failed_count} step(s) failed. Check details above.[/]")
+    elif has_warnings:
+        console.print(f"[{C_WARN}]Optimization finished with warnings.[/]")
+    else:
+        console.print("[green]All optimization steps finished successfully.[/]")

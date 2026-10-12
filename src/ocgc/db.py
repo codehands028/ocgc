@@ -2215,9 +2215,11 @@ def get_snapshot_projects(
     project: str | None = None,
     directory: str | None = None,
     conn: sqlite3.Connection | None = None,
+    storage_dir: Path | None = None,
 ) -> list[tuple[str, int]]:
     """Return (dirname, size_bytes) for each snapshot project directory, optionally filtered."""
-    snap_dir = get_storage_dir() / "snapshot"
+    base_dir = storage_dir if storage_dir is not None else get_storage_dir()
+    snap_dir = base_dir / "snapshot"
     if not snap_dir.is_dir():
         return []
 
@@ -2331,9 +2333,11 @@ def purge_snapshots(
     directory: str | None = None,
     conn: sqlite3.Connection | None = None,
     names: list[str] | None = None,
+    storage_dir: Path | None = None,
 ) -> PurgeFilesResult:
     """Delete snapshot directories. If names given, delete those; else filter by project/directory."""
-    snap_dir = get_storage_dir() / "snapshot"
+    base_dir = storage_dir if storage_dir is not None else get_storage_dir()
+    snap_dir = base_dir / "snapshot"
     result = PurgeFilesResult()
     if not snap_dir.is_dir():
         return result
@@ -2341,7 +2345,9 @@ def purge_snapshots(
     if names is not None:
         target_names = names
     else:
-        snap_projects = get_snapshot_projects(project=project, directory=directory, conn=conn)
+        snap_projects = get_snapshot_projects(
+            project=project, directory=directory, conn=conn, storage_dir=storage_dir
+        )
         target_names = [name for name, _ in snap_projects]
 
     for name in target_names:
@@ -2357,9 +2363,11 @@ def purge_snapshots(
 def get_tool_output_files(
     older_than_ms: int | None = None,
     now_ms: int | None = None,
+    storage_dir: Path | None = None,
 ) -> list[ToolOutputFile]:
     """Find files in tool-output/ directory, optionally older than older_than_ms."""
-    tool_dir = get_storage_dir() / "tool-output"
+    base_dir = storage_dir if storage_dir is not None else get_storage_dir()
+    tool_dir = base_dir / "tool-output"
     if not tool_dir.is_dir():
         return []
 

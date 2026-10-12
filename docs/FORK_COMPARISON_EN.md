@@ -39,8 +39,9 @@ the equivalent document.
 | **Database health check & diagnostics** | ❌ None | ✅ **`ocgc doctor`** (integrity, WAL bloat, dangling rows, permissions) |
 | **Structured JSON output** | ❌ None | ✅ **Native** (`status` / `sessions` / `analyze` / `projects` / `doctor`) |
 | **Interactive terminal selector** | ❌ None | ✅ **Native** (`ocgc browse`, TUI keyboard tagging & preview) |
+| **One-click optimization presets** | ❌ None | ✅ **Native** (`ocgc auto` with safe & aggressive presets) |
 | **OpenCode native skill integration** | ❌ None | ✅ **Built-in** (`ocgc install-skill`) |
-| **Automated test coverage** | ⚠️ Minimal | ✅ **126 tests** covering v1 and v2 end-to-end flows |
+| **Automated test coverage** | ⚠️ Minimal | ✅ **135 tests** covering v1 and v2 end-to-end flows |
 
 ---
 

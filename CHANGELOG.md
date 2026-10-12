@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [0.4.5] - 2026-10-13
+
+### Added
+
+- One-click storage optimization presets (`ocgc auto`):
+  - Presets support:
+    - `safe` (default, recommended): non-destructive maintenance that cleans orphan diff files, purges cached tool outputs, strips reasoning parts from sessions older than 14 days, and flushes/truncates the SQLite WAL log (`checkpoint TRUNCATE`).
+    - `aggressive`: deep reclamation that purges sessions older than 30 days (with cascading reference cleanup and associated diff files), deletes all git snapshots, strips reasoning parts from all remaining sessions, and runs a full database `vacuum`.
+  - Supports `--dry-run` (`-n`) for read-only preview of estimated space reclamation per step without making any modifications.
+  - Supports `--force` (`-f`) to skip interactive confirmation prompts for automated environments.
+  - Supports `--json` for structured machine-readable plans and execution reports.
+  - Guard mechanisms: detects active OpenCode process conflicts, ensures safe connection closure before WAL checkpoints and VACUUM, and provides full compatibility across OpenCode v1 and v2 schemas.
+- Comprehensive test suite for one-click optimization engine (9 new unit/integration tests, expanding test suite to 135 passing tests).
+
 ## [0.4.4] - 2026-10-10
 
 ### Added
@@ -101,7 +115,8 @@ No user-facing command behaviour changed.
   Verified it fails against an injected parsing defect.
 - Test suite: 111 passing (was 110).
 
-[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/codehands028/ocgc/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/codehands028/ocgc/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/codehands028/ocgc/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/codehands028/ocgc/compare/v0.4.1...v0.4.2

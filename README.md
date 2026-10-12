@@ -9,7 +9,7 @@
 [![skills.sh](https://skills.sh/b/codehands028/ocgc)](https://skills.sh/codehands028/ocgc)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/codehands028/ocgc)
 [![CI](https://github.com/codehands028/ocgc/actions/workflows/ci.yml/badge.svg)](https://github.com/codehands028/ocgc/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-126%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-135%20passed-brightgreen.svg)](tests/)
 
 Analyze, visualize, and reclaim storage used by [OpenCode](https://github.com/anomalyco/opencode) sessions, diffs, and snapshots. Supports both **OpenCode v1 and v2** schemas natively across **Windows, macOS, and Linux**.
 
@@ -382,6 +382,38 @@ ocgc doctor --json
 
 ---
 
+### 7. One-Click Storage Optimization Presets (`ocgc auto`)
+
+Instead of memorizing flags and multi-stage workflows, `ocgc auto` provides predefined safe maintenance and deep reclamation presets:
+
+```bash
+# Recommended safe mode (cleans orphan diffs + tool output + strips >14d reasoning + WAL checkpoint)
+ocgc auto
+
+# Explicitly specify the safe preset
+ocgc auto --preset safe
+
+# Deep reclamation mode (deletes >30d sessions + git snapshots + all remaining reasoning + vacuum)
+ocgc auto --preset aggressive
+
+# Preview planned optimization without applying changes (dry run)
+ocgc auto --dry-run
+
+# Skip interactive confirmations (suitable for scripts and CI)
+ocgc auto --force
+
+# Structured JSON plan or execution report
+ocgc auto --dry-run --json
+ocgc auto --force --json
+```
+
+| Preset | Key Actions | Target Use Case & Safety |
+| :--- | :--- | :--- |
+| **`safe` (Default, Recommended)** | 1. Clean orphan diff files<br>2. Clean `tool-output/` cached files<br>3. Strip reasoning from sessions older than 14d<br>4. Reset WAL log (`checkpoint TRUNCATE`) | **Completely non-destructive** to active sessions, safe for routine maintenance. |
+| **`aggressive` (Deep Reclamation)** | 1. Purge sessions older than 30d<br>2. Delete all git snapshot directories<br>3. Strip reasoning from all remaining sessions<br>4. Run full database `vacuum` | **Maximum storage reclamation** when disk space is critically constrained. |
+
+---
+
 ## 🗄️ Understanding OpenCode Storage Architecture
 
 To effectively manage OpenCode's footprint, `ocgc` analyzes two storage domains:
@@ -410,11 +442,11 @@ To effectively manage OpenCode's footprint, `ocgc` analyzes two storage domains:
 
 ## 🛡️ Safety & Reliability Guarantees
 
-- **Read-Only by Default**: Commands `status`, `sessions`, `analyze`, `projects`, `doctor`, and `export` open SQLite in strict read-only mode (`?mode=ro`) and never modify files. Only `purge`, `checkpoint`, and `vacuum` ever open the database for writing.
+- **Read-Only by Default**: Commands `status`, `sessions`, `analyze`, `projects`, `doctor`, and `export` open SQLite in strict read-only mode (`?mode=ro`) and never modify files. Optimization commands (`auto` and `browse`) operate in read-only mode during preview and planning, opening write connections only upon explicit user confirmation.
 - **Active Process Detection**: Automatically alerts you if OpenCode is currently running (`pgrep` on Unix, `tasklist` CSV on Windows) to prevent concurrent write collisions or database locking.
 - **Atomic Transactions & Rollback**: In OpenCode v2, session deletion across all 9 related tables runs within an atomic transaction. Any error triggers an immediate rollback to preserve database integrity.
 - **Safe Directory Purging**: Snapshot directory cleanup on Windows properly handles read-only git pack files (`_rmtree_safe` with `chmod S_IWRITE`) without throwing `PermissionError`.
-- **Confirmation Prompts**: Purge and vacuum operations require interactive confirmation unless explicitly bypassed via `--force`.
+- **Confirmation Prompts**: Destructive cleanup operations (`purge`, `browse`, `auto`) require interactive confirmation unless explicitly bypassed via `--force`.
 
 ---
 
