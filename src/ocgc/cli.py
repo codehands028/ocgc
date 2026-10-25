@@ -105,6 +105,61 @@ def projects(sort_by: str, limit: int | None, json_output: bool) -> None:
     run_projects(sort_by=sort_by, limit=limit, json_output=json_output)
 
 
+@cli.command("tokens")
+@click.option("--project", "-p", default=None, help="Filter tokens by project name or ID")
+@click.option("--directory", "-d", default=None, help="Filter tokens by directory path or pattern")
+@click.option(
+    "--by",
+    type=click.Choice(["all", "model", "project", "session"], case_sensitive=False),
+    default="all",
+    show_default=True,
+    help="Breakdown view: all (models + projects), model, project, or session",
+)
+@click.option(
+    "--sort",
+    "sort_by",
+    type=click.Choice(["tokens", "cost", "hit-rate", "name"], case_sensitive=False),
+    default="tokens",
+    show_default=True,
+    help="Sort order: tokens, cost, hit-rate, or name",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Limit number of rows shown in breakdown tables",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output token dashboard as structured JSON",
+)
+def tokens_cmd(
+    project: str | None,
+    directory: str | None,
+    by: str,
+    sort_by: str,
+    limit: int | None,
+    json_output: bool,
+) -> None:
+    """Dashboard: Token consumption, costs, and prompt cache hit rates."""
+    from ocgc.analyzer import run_tokens
+
+    clean_proj = project.strip() if project and project.strip() else None
+    clean_dir = directory.strip() if directory and directory.strip() else None
+    run_tokens(
+        project=clean_proj,
+        directory=clean_dir,
+        by=by.lower(),
+        sort_by=sort_by.lower(),
+        limit=limit,
+        json_output=json_output,
+    )
+
+
 @cli.command()
 @click.option(
     "--older-than", default=None,

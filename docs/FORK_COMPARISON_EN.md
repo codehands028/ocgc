@@ -33,15 +33,16 @@ the equivalent document.
 | **Tool output cache cleanup** | ❌ None | ✅ **Native** (`--clean-tool-output`, with age filter & safety checks) |
 | **Targeted project & directory scope** | ❌ None | ✅ **Native** (`--project`, `--directory` across `sessions` & `purge`) |
 | **Project-level storage dashboard** | ❌ None | ✅ **Native** (`ocgc projects` aggregating sessions, data & snapshots) |
+| **Token & cache hit rate dashboard** | ❌ None | ✅ **Native** (`ocgc tokens` tracking tokens, cost & prompt cache hit rate) |
 | **Lightweight WAL checkpoint** | ❌ None | ✅ **Millisecond reset** (`ocgc checkpoint`, TRUNCATE mode) |
 | **Large content / media truncation** | ❌ None | ✅ **Native** (`--strip-large-outputs` with `--threshold`) |
 | **Session Markdown export & archive** | ❌ None | ✅ **Full GFM export** (`ocgc export`, `purge --archive-to`) |
 | **Database health check & diagnostics** | ❌ None | ✅ **`ocgc doctor`** (integrity, WAL bloat, dangling rows, permissions) |
-| **Structured JSON output** | ❌ None | ✅ **Native** (`status` / `sessions` / `analyze` / `projects` / `doctor`) |
+| **Structured JSON output** | ❌ None | ✅ **Native** (`status` / `sessions` / `analyze` / `projects` / `tokens` / `doctor`) |
 | **Interactive terminal selector** | ❌ None | ✅ **Native** (`ocgc browse`, TUI keyboard tagging & preview) |
 | **One-click optimization presets** | ❌ None | ✅ **Native** (`ocgc auto` with safe & aggressive presets) |
 | **OpenCode native skill integration** | ❌ None | ✅ **Built-in** (`ocgc install-skill`) |
-| **Automated test coverage** | ⚠️ Minimal | ✅ **135 tests** covering v1 and v2 end-to-end flows |
+| **Automated test coverage** | ⚠️ Minimal | ✅ **142 tests** covering v1 and v2 end-to-end flows |
 
 ---
 

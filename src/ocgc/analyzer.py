@@ -235,3 +235,44 @@ def run_projects(
         print_projects(projects)
     finally:
         conn.close()
+
+
+def run_tokens(
+    project: str | None = None,
+    directory: str | None = None,
+    by: str = "all",
+    sort_by: str = "tokens",
+    limit: int | None = None,
+    json_output: bool = False,
+) -> None:
+    """运行 Token 消耗与缓存命中率大盘统计。"""
+    from ocgc.display import print_tokens_dashboard, warn_if_opencode_running
+
+    if not json_output:
+        warn_if_opencode_running()
+
+    try:
+        conn = db.connect(readonly=True)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from None
+
+    try:
+        version = _detect_version_or_exit(conn)
+        report = db.get_token_stats(
+            conn,
+            project=project,
+            directory=directory,
+            sort_by=sort_by,
+            limit=limit,
+            version=version,
+        )
+
+        if json_output:
+            _emit_json(report.to_dict(by=by))
+            return
+
+        print_tokens_dashboard(report, by=by)
+    finally:
+        conn.close()
+

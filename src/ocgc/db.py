@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -263,6 +263,149 @@ class OrphanDiff:
             "path": str(self.path),
             "size": self.size,
         }
+
+
+class _TokenMetricsMixin:
+    """Token 与缓存计算属性混入类。"""
+
+    tokens_input: int
+    tokens_output: int
+    tokens_reasoning: int
+    tokens_cache_read: int
+    tokens_cache_write: int
+
+    @property
+    def total_tokens(self) -> int:
+        """总 Token 消耗（输入 + 输出 + 缓存读取）。"""
+        return self.tokens_input + self.tokens_output + self.tokens_cache_read
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Prompt 缓存命中率 = 缓存读取 / (缓存读取 + 输入)。"""
+        denom = self.tokens_cache_read + self.tokens_input
+        if denom <= 0:
+            return 0.0
+        return self.tokens_cache_read / denom
+
+
+@dataclass
+class TokenGroupStats(_TokenMetricsMixin):
+    name: str
+    session_count: int
+    tokens_input: int
+    tokens_output: int
+    tokens_reasoning: int
+    tokens_cache_read: int
+    tokens_cache_write: int
+    cost: float
+
+    def to_dict(self) -> dict[str, Any]:
+        """将聚合指标转换为可序列化字典。"""
+        return {
+            "name": self.name,
+            "session_count": self.session_count,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "tokens_reasoning": self.tokens_reasoning,
+            "tokens_cache_read": self.tokens_cache_read,
+            "tokens_cache_write": self.tokens_cache_write,
+            "total_tokens": self.total_tokens,
+            "cache_hit_rate": round(self.cache_hit_rate, 4),
+            "cost": round(self.cost, 4),
+        }
+
+
+@dataclass
+class SessionTokenDetail(_TokenMetricsMixin):
+    id: str
+    title: str | None
+    project_id: str | None
+    directory: str
+    model: str
+    tokens_input: int
+    tokens_output: int
+    tokens_reasoning: int
+    tokens_cache_read: int
+    tokens_cache_write: int
+    cost: float
+    time_created: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """将会话级别 Token 明细转换为可序列化字典。"""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "project_id": self.project_id,
+            "directory": self.directory,
+            "model": self.model,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "tokens_reasoning": self.tokens_reasoning,
+            "tokens_cache_read": self.tokens_cache_read,
+            "tokens_cache_write": self.tokens_cache_write,
+            "total_tokens": self.total_tokens,
+            "cache_hit_rate": round(self.cache_hit_rate, 4),
+            "cost": round(self.cost, 4),
+            "time_created": self.time_created,
+        }
+
+
+@dataclass
+class TokenSummary(_TokenMetricsMixin):
+    total_sessions: int
+    tokens_input: int
+    tokens_output: int
+    tokens_reasoning: int
+    tokens_cache_read: int
+    tokens_cache_write: int
+    total_cost: float
+
+    def to_dict(self) -> dict[str, Any]:
+        """将总体汇总转换为字典。"""
+        return {
+            "total_sessions": self.total_sessions,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
+            "tokens_reasoning": self.tokens_reasoning,
+            "tokens_cache_read": self.tokens_cache_read,
+            "tokens_cache_write": self.tokens_cache_write,
+            "total_tokens": self.total_tokens,
+            "cache_hit_rate": round(self.cache_hit_rate, 4),
+            "total_cost": round(self.total_cost, 4),
+        }
+
+
+@dataclass
+class TokensReport:
+    version: int
+    supported: bool
+    message: str | None = None
+    summary: TokenSummary | None = None
+    models: list[TokenGroupStats] = field(default_factory=list)
+    projects: list[TokenGroupStats] = field(default_factory=list)
+    sessions: list[SessionTokenDetail] = field(default_factory=list)
+
+    def to_dict(self, by: str = "all") -> dict[str, Any]:
+        """将完整报告转换为字典，支持根据聚合维度过滤输出。"""
+        payload: dict[str, Any] = {
+            "version": self.version,
+            "supported": self.supported,
+            "message": self.message,
+            "summary": self.summary.to_dict() if self.summary else None,
+        }
+        if self.supported:
+            if by in ("all", "model"):
+                payload["models"] = [m.to_dict() for m in self.models]
+            if by in ("all", "project"):
+                payload["projects"] = [p.to_dict() for p in self.projects]
+            if by == "session":
+                payload["sessions"] = [s.to_dict() for s in self.sessions]
+        else:
+            payload["models"] = []
+            payload["projects"] = []
+            payload["sessions"] = []
+        return payload
+
 
 
 def _platform_default_db_path() -> Path:
@@ -811,6 +954,239 @@ def get_project_stats(
     return rows
 
 
+def parse_model_name(
+    raw_model: Any,
+    default: str = "(unknown)",
+    include_provider: bool = True,
+) -> str:
+    """解析并标准化 session 中的 model 字段。
+
+    兼容 JSON 对象字符串（如 {"id": "...", "providerID": "..."}）以及普通字符串。
+    """
+    if not raw_model:
+        return default
+    if isinstance(raw_model, str) and raw_model.strip().startswith("{"):
+        with contextlib.suppress(Exception):
+            m_obj = json.loads(raw_model)
+            if isinstance(m_obj, dict):
+                provider = m_obj.get("providerID") or m_obj.get("provider")
+                model_id = m_obj.get("id") or m_obj.get("name")
+                if model_id:
+                    if include_provider and provider:
+                        if str(model_id).startswith(f"{provider}/"):
+                            return str(model_id)
+                        return f"{provider}/{model_id}"
+                    return str(model_id)
+                # JSON 解析成功但缺少有效模型名标识时回退默认值，避免输出杂乱 JSON
+                return default
+    return str(raw_model)
+
+
+def get_token_stats(
+    conn: sqlite3.Connection,
+    project: str | None = None,
+    directory: str | None = None,
+    sort_by: str = "tokens",
+    limit: int | None = None,
+    version: int | None = None,
+) -> TokensReport:
+    """获取 Token 消耗及缓存命中率大盘统计。"""
+    if version is None:
+        version = detect_version(conn)
+
+    if version == 1:
+        return TokensReport(
+            version=1,
+            supported=False,
+            message="OpenCode v1 schema does not record token or cost metrics.",
+        )
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(session_v2)")}
+    select_cols = [
+        "s.id",
+        "s.title",
+        "s.project_id" if "project_id" in cols else "NULL AS project_id",
+        "s.directory",
+        "s.model" if "model" in cols else "NULL AS model",
+        "s.cost" if "cost" in cols else "0.0 AS cost",
+        "s.tokens_input" if "tokens_input" in cols else "0 AS tokens_input",
+        "s.tokens_output" if "tokens_output" in cols else "0 AS tokens_output",
+        "s.tokens_reasoning" if "tokens_reasoning" in cols else "0 AS tokens_reasoning",
+        "s.tokens_cache_read" if "tokens_cache_read" in cols else "0 AS tokens_cache_read",
+        "s.tokens_cache_write" if "tokens_cache_write" in cols else "0 AS tokens_cache_write",
+        "s.time_created",
+    ]
+
+    filter_version = 2 if "project_id" in cols else 1
+    conds, params = _build_filter_clause(directory=directory, project=project, version=filter_version)
+    where_clause = f"WHERE {' AND '.join(conds)}" if conds else ""
+    query = f"SELECT {', '.join(select_cols)} FROM session_v2 s {where_clause} ORDER BY s.time_created DESC"
+
+    worktrees: dict[str, str] = {}
+    if {"id", "worktree"}.issubset(_table_columns(conn, "project")):
+        worktrees = {
+            str(r[0]): str(r[1])
+            for r in conn.execute(
+                "SELECT id, worktree FROM project "
+                "WHERE id IS NOT NULL AND worktree IS NOT NULL AND TRIM(worktree) != ''"
+            )
+            if r[0]
+        }
+
+    rows = conn.execute(query, params).fetchall()
+
+    session_details: list[SessionTokenDetail] = []
+    model_groups: dict[str, dict[str, Any]] = {}
+    project_groups: dict[str, dict[str, Any]] = {}
+
+    total_input = 0
+    total_output = 0
+    total_reasoning = 0
+    total_cache_read = 0
+    total_cache_write = 0
+    total_cost = 0.0
+
+    for r in rows:
+        m_name = parse_model_name(r["model"])
+        p_id = r["project_id"]
+        proj_name = worktrees.get(p_id) or p_id or r["directory"] or "(unknown)"
+
+        inp = int(r["tokens_input"] or 0)
+        outp = int(r["tokens_output"] or 0)
+        reas = int(r["tokens_reasoning"] or 0)
+        cread = int(r["tokens_cache_read"] or 0)
+        cwrite = int(r["tokens_cache_write"] or 0)
+        cst = float(r["cost"] or 0.0)
+
+        total_input += inp
+        total_output += outp
+        total_reasoning += reas
+        total_cache_read += cread
+        total_cache_write += cwrite
+        total_cost += cst
+
+        detail = SessionTokenDetail(
+            id=str(r["id"]),
+            title=r["title"],
+            project_id=p_id,
+            directory=str(r["directory"] or ""),
+            model=m_name,
+            tokens_input=inp,
+            tokens_output=outp,
+            tokens_reasoning=reas,
+            tokens_cache_read=cread,
+            tokens_cache_write=cwrite,
+            cost=cst,
+            time_created=int(r["time_created"] or 0),
+        )
+        session_details.append(detail)
+
+        # 汇总模型统计
+        if m_name not in model_groups:
+            model_groups[m_name] = {
+                "count": 0, "inp": 0, "outp": 0, "reas": 0,
+                "cread": 0, "cwrite": 0, "cost": 0.0,
+            }
+        mg = model_groups[m_name]
+        mg["count"] += 1
+        mg["inp"] += inp
+        mg["outp"] += outp
+        mg["reas"] += reas
+        mg["cread"] += cread
+        mg["cwrite"] += cwrite
+        mg["cost"] += cst
+
+        # 汇总项目统计
+        if proj_name not in project_groups:
+            project_groups[proj_name] = {
+                "count": 0, "inp": 0, "outp": 0, "reas": 0,
+                "cread": 0, "cwrite": 0, "cost": 0.0,
+            }
+        pg = project_groups[proj_name]
+        pg["count"] += 1
+        pg["inp"] += inp
+        pg["outp"] += outp
+        pg["reas"] += reas
+        pg["cread"] += cread
+        pg["cwrite"] += cwrite
+        pg["cost"] += cst
+
+    models_list = [
+        TokenGroupStats(
+            name=k,
+            session_count=v["count"],
+            tokens_input=v["inp"],
+            tokens_output=v["outp"],
+            tokens_reasoning=v["reas"],
+            tokens_cache_read=v["cread"],
+            tokens_cache_write=v["cwrite"],
+            cost=v["cost"],
+        )
+        for k, v in model_groups.items()
+    ]
+
+    projects_list = [
+        TokenGroupStats(
+            name=k,
+            session_count=v["count"],
+            tokens_input=v["inp"],
+            tokens_output=v["outp"],
+            tokens_reasoning=v["reas"],
+            tokens_cache_read=v["cread"],
+            tokens_cache_write=v["cwrite"],
+            cost=v["cost"],
+        )
+        for k, v in project_groups.items()
+    ]
+
+    def _sort_key(item: TokenGroupStats) -> Any:
+        if sort_by == "cost":
+            return item.cost
+        if sort_by == "hit-rate":
+            return item.cache_hit_rate
+        if sort_by == "name":
+            return item.name.lower()
+        return item.total_tokens
+
+    def _sort_session_key(item: SessionTokenDetail) -> Any:
+        if sort_by == "cost":
+            return item.cost
+        if sort_by == "hit-rate":
+            return item.cache_hit_rate
+        if sort_by == "name":
+            return (item.title or item.id).lower()
+        return item.total_tokens
+
+    rev = sort_by != "name"
+    models_list.sort(key=_sort_key, reverse=rev)
+    projects_list.sort(key=_sort_key, reverse=rev)
+    session_details.sort(key=_sort_session_key, reverse=rev)
+
+    if limit is not None:
+        models_list = models_list[: max(0, limit)]
+        projects_list = projects_list[: max(0, limit)]
+        session_details = session_details[: max(0, limit)]
+
+    summary = TokenSummary(
+        total_sessions=len(rows),
+        tokens_input=total_input,
+        tokens_output=total_output,
+        tokens_reasoning=total_reasoning,
+        tokens_cache_read=total_cache_read,
+        tokens_cache_write=total_cache_write,
+        total_cost=total_cost,
+    )
+
+    return TokensReport(
+        version=2,
+        supported=True,
+        summary=summary,
+        models=models_list,
+        projects=projects_list,
+        sessions=session_details,
+    )
+
+
 def get_session_transcript(
     conn: sqlite3.Connection,
     session_id: str,
@@ -843,13 +1219,8 @@ def get_session_transcript(
         model_name: str | None = None
         raw_model = row["model"]
         if raw_model:
-            if isinstance(raw_model, str) and raw_model.strip().startswith("{"):
-                with contextlib.suppress(Exception):
-                    m_obj = json.loads(raw_model)
-                    if isinstance(m_obj, dict):
-                        model_name = m_obj.get("id") or m_obj.get("name")
-            if not model_name:
-                model_name = str(raw_model)
+            parsed = parse_model_name(raw_model, default="", include_provider=False)
+            model_name = parsed if parsed else None
 
         tokens = {
             "input": int(row["tokens_input"] or 0),

@@ -206,6 +206,39 @@ Aggregates storage per project / workspace so you can see which Git repos domina
 - **Total**: combined data + snapshot footprint (`--sort size` ranks by this)
 - **Last Active**: most recent session activity timestamp
 
+#### Token Consumption & Cache Hit Rate Dashboard (`tokens`)
+```bash
+# Global dashboard: summary KPI panel, model breakdown & project breakdown
+ocgc tokens
+
+# Slice by model breakdown only
+ocgc tokens --by model
+
+# Slice by project breakdown only
+ocgc tokens --by project
+
+# Inspect per-session token details
+ocgc tokens --by session
+
+# Filter by project or directory
+ocgc tokens --project my-app
+ocgc tokens --directory ~/Projects/backend
+
+# Sort by cost, hit-rate, or name with row limit
+ocgc tokens --sort cost --limit 10
+ocgc tokens --sort hit-rate
+
+# Emit structured JSON
+ocgc tokens --json
+```
+Provides high-value LLM operational insights:
+- **Total Tokens**: input + output + cache read
+- **Cache Hit Rate**: prompt caching efficiency (`tokens_cache_read / (tokens_cache_read + tokens_input)`)
+- **Reasoning Tokens**: thinking/reasoning chain tokens
+- **Total Cost**: overall and per-group expenditure
+- **Multi-dimensional Drill-down**: group by model, project, or session
+
+
 ---
 
 ### 2. Surgical Garbage Collection (`ocgc purge`)

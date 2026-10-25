@@ -26,15 +26,16 @@
 | **工具输出缓存清理** | ❌ 无 | ✅ **原生**（`--clean-tool-output`，含时间过滤与安全检查） |
 | **按项目 / 目录定向清理** | ❌ 无 | ✅ **原生**（`--project`、`--directory`，覆盖 `sessions` 与 `purge`） |
 | **项目级存储大盘** | ❌ 无 | ✅ **原生**（`ocgc projects` 聚合 session、data 与 snapshot） |
+| **Token / 缓存命中率大盘** | ❌ 无 | ✅ **原生**（`ocgc tokens` 透视 Token 消耗、费用与 Prompt 缓存命中） |
 | **轻量级 WAL 归并** | ❌ 无 | ✅ **毫秒级重置**（`ocgc checkpoint`，TRUNCATE 模式） |
 | **超大内容 / 媒体裁剪** | ❌ 无 | ✅ **原生**（`--strip-large-outputs`，可配 `--threshold`） |
 | **会话 Markdown 导出与归档** | ❌ 无 | ✅ **完整 GFM 导出**（`ocgc export`、`purge --archive-to`） |
 | **数据库体检与诊断** | ❌ 无 | ✅ **`ocgc doctor`**（完整性、WAL 膨胀、悬空行、权限） |
-| **结构化 JSON 输出** | ❌ 无 | ✅ **原生**（`status` / `sessions` / `analyze` / `projects` / `doctor`） |
+| **结构化 JSON 输出** | ❌ 无 | ✅ **原生**（`status` / `sessions` / `analyze` / `projects` / `tokens` / `doctor`） |
 | **交互式终端选择器** | ❌ 无 | ✅ **原生**（`ocgc browse`，TUI 键盘标记与预览执行） |
 | **一键优化安全策略** | ❌ 无 | ✅ **原生**（`ocgc auto`，支持 Safe 与 Aggressive 预设） |
 | **OpenCode 原生 Skill 集成** | ❌ 无 | ✅ **内置**（`ocgc install-skill`） |
-| **自动化测试覆盖** | ⚠️ 较少 | ✅ **135 个测试**，覆盖 v1 与 v2 端到端流程 |
+| **自动化测试覆盖** | ⚠️ 较少 | ✅ **142 个测试**，覆盖 v1 与 v2 端到端流程 |
 
 ---
 

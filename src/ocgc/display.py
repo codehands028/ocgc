@@ -17,8 +17,9 @@ from ocgc.db import (
     ProjectRow,
     SessionRow,
     StripLargeOutputsSummary,
+    TokensReport,
 )
-from ocgc.units import format_bytes
+from ocgc.units import format_bytes, format_cost, format_percent, format_tokens
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -263,6 +264,163 @@ def print_projects(projects: list[ProjectRow]) -> None:
         )
 
     console.print(table)
+
+
+def print_tokens_dashboard(report: TokensReport, by: str = "all") -> None:
+    """打印 Token 消耗与 Prompt 缓存命中率大盘。"""
+    if not report.supported:
+        msg = report.message or "OpenCode v1 schema does not record token metrics."
+        console.print(f"[{C_WARN}]Notice:[/] {msg}")
+        return
+
+    summary = report.summary
+    if not summary or summary.total_sessions == 0:
+        console.print("[dim]No sessions found matching criteria.[/]")
+        return
+
+    # 1. 概览面板
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+    grid.add_column(style=C_DIM, justify="right")
+    grid.add_column(style=C_VALUE)
+
+    rate_color = C_SUCCESS if summary.cache_hit_rate >= 0.5 else "cyan"
+    grid.add_row(
+        "Sessions", f"{summary.total_sessions:,}",
+        "Total Cost", f"[bold green]{format_cost(summary.total_cost)}[/]",
+    )
+    grid.add_row(
+        "Total Tokens", f"[bold]{format_tokens(summary.total_tokens)}[/]",
+        "Cache Hit Rate", f"[{rate_color}]{format_percent(summary.cache_hit_rate)}[/]",
+    )
+    grid.add_row(
+        "Input Tokens", format_tokens(summary.tokens_input),
+        "Output Tokens", format_tokens(summary.tokens_output),
+    )
+    grid.add_row(
+        "Reasoning Tokens", format_tokens(summary.tokens_reasoning),
+        "Cache Read", format_tokens(summary.tokens_cache_read),
+    )
+    grid.add_row("Cache Write", format_tokens(summary.tokens_cache_write), "", "")
+
+    console.print(Panel(grid, title="[bold cyan]ocgc tokens - Token & Cache Dashboard[/]", border_style="cyan"))
+
+    # 2. 模型表格与项目表格
+    show_models = by in ("all", "model")
+    show_projects = by in ("all", "project")
+    show_sessions = by == "session"
+
+    if show_models and report.models:
+        model_table = Table(
+            title="Token Usage & Cache by Model",
+            show_header=True,
+            header_style="bold",
+            border_style="dim",
+            padding=(0, 1),
+            expand=True,
+        )
+        model_table.add_column("Model", style="bold", min_width=12, overflow="ellipsis", ratio=3)
+        model_table.add_column("Sessions", justify="right", ratio=1)
+        model_table.add_column("Input", justify="right", ratio=1)
+        model_table.add_column("Output", justify="right", ratio=1)
+        model_table.add_column("Reasoning", justify="right", style=C_DIM, ratio=1)
+        model_table.add_column("Cache Read", justify="right", ratio=1)
+        model_table.add_column("Cache Write", justify="right", style=C_DIM, ratio=1)
+        model_table.add_column("Hit Rate", justify="right", style="bold", ratio=1)
+        model_table.add_column("Total Tokens", justify="right", style="bold", ratio=1)
+        model_table.add_column("Cost", justify="right", style="green", ratio=1)
+
+        for m in report.models:
+            hr_color = C_SUCCESS if m.cache_hit_rate >= 0.5 else "cyan"
+            model_table.add_row(
+                escape(m.name),
+                f"{m.session_count:,}",
+                format_tokens(m.tokens_input),
+                format_tokens(m.tokens_output),
+                format_tokens(m.tokens_reasoning),
+                format_tokens(m.tokens_cache_read),
+                format_tokens(m.tokens_cache_write),
+                f"[{hr_color}]{format_percent(m.cache_hit_rate)}[/]",
+                format_tokens(m.total_tokens),
+                format_cost(m.cost),
+            )
+        console.print(model_table)
+
+    if show_projects and report.projects:
+        proj_table = Table(
+            title="Token Usage & Cache by Project",
+            show_header=True,
+            header_style="bold",
+            border_style="dim",
+            padding=(0, 1),
+            expand=True,
+        )
+        proj_table.add_column("Project / Workspace", min_width=12, overflow="ellipsis", ratio=3)
+        proj_table.add_column("Sessions", justify="right", ratio=1)
+        proj_table.add_column("Input", justify="right", ratio=1)
+        proj_table.add_column("Output", justify="right", ratio=1)
+        proj_table.add_column("Reasoning", justify="right", style=C_DIM, ratio=1)
+        proj_table.add_column("Cache Read", justify="right", ratio=1)
+        proj_table.add_column("Cache Write", justify="right", style=C_DIM, ratio=1)
+        proj_table.add_column("Hit Rate", justify="right", style="bold", ratio=1)
+        proj_table.add_column("Total Tokens", justify="right", style="bold", ratio=1)
+        proj_table.add_column("Cost", justify="right", style="green", ratio=1)
+
+        for p in report.projects:
+            hr_color = C_SUCCESS if p.cache_hit_rate >= 0.5 else "cyan"
+            proj_table.add_row(
+                escape(p.name),
+                f"{p.session_count:,}",
+                format_tokens(p.tokens_input),
+                format_tokens(p.tokens_output),
+                format_tokens(p.tokens_reasoning),
+                format_tokens(p.tokens_cache_read),
+                format_tokens(p.tokens_cache_write),
+                f"[{hr_color}]{format_percent(p.cache_hit_rate)}[/]",
+                format_tokens(p.total_tokens),
+                format_cost(p.cost),
+            )
+        console.print(proj_table)
+
+    if show_sessions and report.sessions:
+        sess_table = Table(
+            title="Session Token Details",
+            show_header=True,
+            header_style="bold",
+            border_style="dim",
+            padding=(0, 1),
+            expand=True,
+        )
+        sess_table.add_column("Session ID", style="dim", max_width=12, ratio=1)
+        sess_table.add_column("Title / Directory", min_width=12, overflow="ellipsis", ratio=3)
+        sess_table.add_column("Model", style="bold", min_width=12, overflow="ellipsis", ratio=2)
+        sess_table.add_column("Input", justify="right", ratio=1)
+        sess_table.add_column("Output", justify="right", ratio=1)
+        sess_table.add_column("Reasoning", justify="right", style=C_DIM, ratio=1)
+        sess_table.add_column("Cache Read", justify="right", ratio=1)
+        sess_table.add_column("Cache Write", justify="right", style=C_DIM, ratio=1)
+        sess_table.add_column("Hit Rate", justify="right", style="bold", ratio=1)
+        sess_table.add_column("Total Tokens", justify="right", style="bold", ratio=1)
+        sess_table.add_column("Cost", justify="right", style="green", ratio=1)
+
+        for s in report.sessions:
+            hr_color = C_SUCCESS if s.cache_hit_rate >= 0.5 else "cyan"
+            display_title = s.title or s.directory or "(untitled)"
+            sess_table.add_row(
+                escape(s.id[:12]),
+                escape(display_title),
+                escape(s.model),
+                format_tokens(s.tokens_input),
+                format_tokens(s.tokens_output),
+                format_tokens(s.tokens_reasoning),
+                format_tokens(s.tokens_cache_read),
+                format_tokens(s.tokens_cache_write),
+                f"[{hr_color}]{format_percent(s.cache_hit_rate)}[/]",
+                format_tokens(s.total_tokens),
+                format_cost(s.cost),
+            )
+        console.print(sess_table)
 
 
 def print_analysis(

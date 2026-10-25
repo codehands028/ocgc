@@ -209,6 +209,39 @@ ocgc projects --json
 - **Total**：数据 + 快照的合计磁盘占用（`--sort size` 即按此排序）
 - **Last Active**：该项目最后一次活跃时间
 
+#### Token 消耗与缓存命中率大盘 (`tokens`)
+```bash
+# 全局综合大盘：总体概览、各模型消耗排行及各项目透视
+ocgc tokens
+
+# 仅按模型透视 Token 消耗与费用
+ocgc tokens --by model
+
+# 仅按项目透视 Prompt 缓存命中率
+ocgc tokens --by project
+
+# 查看各会话的 Token 与缓存明细列表
+ocgc tokens --by session
+
+# 按项目名称/ID 或工作区目录过滤
+ocgc tokens --project my-app
+ocgc tokens --directory ~/Projects/backend
+
+# 按费用、命中率或名称排序并截断数量
+ocgc tokens --sort cost --limit 10
+ocgc tokens --sort hit-rate
+
+# 输出结构化 JSON
+ocgc tokens --json
+```
+直观洞察各项 LLM 核心指标：
+- **Total Tokens**：输入 + 输出 + 缓存读取总和
+- **Cache Hit Rate**：Prompt 缓存命中率（`tokens_cache_read / (tokens_cache_read + tokens_input)`）
+- **Reasoning Tokens**：深度思考与推理链消耗
+- **Total Cost**：账单费用透视
+- **多维度透视**：支持模型、项目及会话级别的聚合下钻与排序
+
+
 ---
 
 ### 2. 细粒度智能垃圾清理 (`ocgc purge`)
