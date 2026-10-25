@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [0.4.6] - 2026-10-25
+
+### Added
+
+- Token consumption and prompt cache hit rate dashboard (`ocgc tokens`):
+  - Overview KPI panel displaying total sessions, total tokens, overall cache hit rate, and total cost.
+  - Multi-dimensional breakdown tables supporting aggregation by model (`--by model`), workspace/project (`--by project`), and detailed session inspection (`--by session`).
+  - Supports filtering by project name/ID (`--project` / `-p`) and workspace directory pattern (`--directory` / `-d`).
+  - Supports sorting by total tokens, cost, hit rate, or name (`--sort`) with configurable row limit (`--limit` / `-l`).
+  - Structured JSON output support (`--json`), fully aligned with `--by` filtering.
+  - Graceful fallback for legacy OpenCode v1 databases and backward compatibility for older v2 schemas.
+  - Expanded automated test suite with comprehensive coverage for token calculations and CLI behavior (143 passing tests).
+
 ## [0.4.5] - 2026-10-13
 
 ### Added
@@ -115,7 +128,8 @@ No user-facing command behaviour changed.
   Verified it fails against an injected parsing defect.
 - Test suite: 111 passing (was 110).
 
-[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/codehands028/ocgc/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/codehands028/ocgc/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/codehands028/ocgc/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/codehands028/ocgc/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/codehands028/ocgc/compare/v0.4.2...v0.4.3
